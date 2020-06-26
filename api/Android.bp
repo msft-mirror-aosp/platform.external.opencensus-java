@@ -20,11 +20,11 @@ java_library_host {
         "src/main/java/**/*.java",
     ],
     plugins: [
-        "dagger2-auto-value",
+        "auto_value_plugin",
     ],
     libs: [
         "error_prone_annotations",
-        "dagger2-auto-value",
+        "auto_value_annotations",
         "grpc-java-context",
         "jsr305",
     ],
