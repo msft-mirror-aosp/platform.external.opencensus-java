@@ -14,8 +14,9 @@
 //
 //
 
-java_library_host {
+java_library {
     name: "opencensus-java-contrib-grpc-metrics",
+    host_supported: true,
     srcs: [
         "src/main/java/**/*.java",
     ],
