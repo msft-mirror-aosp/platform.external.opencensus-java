@@ -29,4 +29,5 @@ java_library {
         "grpc-java-context",
         "jsr305",
     ],
+    sdk_version: "current",
 }
