@@ -24,4 +24,5 @@ java_library {
         "opencensus-java-api",
         "guava",
     ],
+    sdk_version: "current",
 }
