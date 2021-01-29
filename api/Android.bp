@@ -14,8 +14,9 @@
 //
 //
 
-java_library_host {
+java_library {
     name: "opencensus-java-api",
+    host_supported: true,
     srcs: [
         "src/main/java/**/*.java",
     ],
@@ -28,4 +29,5 @@ java_library_host {
         "grpc-java-context",
         "jsr305",
     ],
+    sdk_version: "current",
 }
