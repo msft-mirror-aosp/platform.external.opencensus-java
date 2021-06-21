@@ -14,18 +14,29 @@
 //
 //
 
-java_library_host {
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "external_opencensus-java_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["external_opencensus-java_license"],
+}
+
+java_library {
     name: "opencensus-java-api",
+    host_supported: true,
     srcs: [
         "src/main/java/**/*.java",
     ],
     plugins: [
-        "dagger2-auto-value",
+        "auto_value_plugin",
     ],
     libs: [
         "error_prone_annotations",
-        "dagger2-auto-value",
+        "auto_value_annotations",
         "grpc-java-context",
         "jsr305",
     ],
+    sdk_version: "current",
 }
