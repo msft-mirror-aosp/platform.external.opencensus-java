@@ -14,18 +14,8 @@
 //
 //
 
-package {
-    // See: http://go/android-license-faq
-    // A large-scale-change added 'default_applicable_licenses' to import
-    // all of the 'license_kinds' from "external_opencensus-java_license"
-    // to get the below license kinds:
-    //   SPDX-license-identifier-Apache-2.0
-    default_applicable_licenses: ["external_opencensus-java_license"],
-}
-
-java_library {
+java_library_host {
     name: "opencensus-java-contrib-grpc-metrics",
-    host_supported: true,
     srcs: [
         "src/main/java/**/*.java",
     ],
@@ -33,5 +23,4 @@ java_library {
         "opencensus-java-api",
         "guava",
     ],
-    sdk_version: "current",
 }
