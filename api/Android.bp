@@ -39,4 +39,8 @@ java_library {
         "jsr305",
     ],
     sdk_version: "current",
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.devicelock",
+    ],
 }

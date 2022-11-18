@@ -34,4 +34,8 @@ java_library {
         "guava",
     ],
     sdk_version: "current",
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.devicelock",
+    ],
 }
