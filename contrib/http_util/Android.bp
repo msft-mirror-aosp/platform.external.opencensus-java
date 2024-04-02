@@ -24,7 +24,7 @@ package {
 }
 
 java_library {
-    name: "opencensus-java-contrib-grpc-metrics",
+    name: "opencensus-java-contrib-http-util",
     host_supported: true,
     srcs: [
         "src/main/java/**/*.java",
@@ -32,14 +32,6 @@ java_library {
     libs: [
         "opencensus-java-api",
         "guava",
-    ],
-    // b/267831518: Pin tradefed and dependencies to Java 11.
-    java_version: "11",
-    sdk_version: "current",
-    min_sdk_version: "33",
-    apex_available: [
-        "//apex_available:platform",
-        "com.android.devicelock",
     ],
     target: {
         windows: {
