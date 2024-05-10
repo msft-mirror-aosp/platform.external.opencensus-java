@@ -42,4 +42,13 @@ java_library {
     java_version: "11",
     sdk_version: "current",
     min_sdk_version: "33",
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.devicelock",
+    ],
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }
