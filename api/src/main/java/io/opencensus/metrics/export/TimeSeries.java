@@ -52,10 +52,20 @@ public abstract class TimeSeries {
    */
   public static TimeSeries create(
       List<LabelValue> labelValues, List<Point> points, @Nullable Timestamp startTimestamp) {
-    Utils.checkNotNull(points, "points");
-    Utils.checkListElementNotNull(points, "point");
+    Utils.checkListElementNotNull(Utils.checkNotNull(points, "points"), "point");
     return createInternal(
         labelValues, Collections.unmodifiableList(new ArrayList<Point>(points)), startTimestamp);
+  }
+
+  /**
+   * Creates a {@link TimeSeries} with empty(or no) points.
+   *
+   * @param labelValues the {@code LabelValue}s that uniquely identify this {@code TimeSeries}.
+   * @return a {@code TimeSeries}.
+   * @since 0.17
+   */
+  public static TimeSeries create(List<LabelValue> labelValues) {
+    return createInternal(labelValues, Collections.<Point>emptyList(), null);
   }
 
   /**
@@ -75,6 +85,18 @@ public abstract class TimeSeries {
   }
 
   /**
+   * Sets the {@code Point} of the {@link TimeSeries}.
+   *
+   * @param point the single data {@code Point} of this {@code TimeSeries}.
+   * @return a {@code TimeSeries}.
+   * @since 0.17
+   */
+  public TimeSeries setPoint(Point point) {
+    Utils.checkNotNull(point, "point");
+    return new AutoValue_TimeSeries(getLabelValues(), Collections.singletonList(point), null);
+  }
+
+  /**
    * Creates a {@link TimeSeries}.
    *
    * @param labelValues the {@code LabelValue}s that uniquely identify this {@code TimeSeries}.
@@ -86,8 +108,7 @@ public abstract class TimeSeries {
   private static TimeSeries createInternal(
       List<LabelValue> labelValues, List<Point> points, @Nullable Timestamp startTimestamp) {
     // Fail fast on null lists to prevent NullPointerException when copying the lists.
-    Utils.checkNotNull(labelValues, "labelValues");
-    Utils.checkListElementNotNull(labelValues, "labelValue");
+    Utils.checkListElementNotNull(Utils.checkNotNull(labelValues, "labelValues"), "labelValue");
     return new AutoValue_TimeSeries(
         Collections.unmodifiableList(new ArrayList<LabelValue>(labelValues)),
         points,

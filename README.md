@@ -1,3 +1,11 @@
+> **Warning**
+>
+> OpenCensus and OpenTracing have merged to form [OpenTelemetry](https://opentelemetry.io), which serves as the next major version of OpenCensus and OpenTracing.
+>
+> OpenTelemetry has now reached feature parity with OpenCensus, with tracing and metrics SDKs available in .NET, Golang, Java, NodeJS, and Python. **All OpenCensus Github repositories, except [census-instrumentation/opencensus-python](https://github.com/census-instrumentation/opencensus-python), will be archived on July 31st, 2023**. We encourage users to migrate to OpenTelemetry by this date.
+>
+> To help you gradually migrate your instrumentation to OpenTelemetry, bridges are available in Java, Go, Python, and JS. [**Read the full blog post to learn more**](https://opentelemetry.io/blog/2023/sunsetting-opencensus/).
+
 # OpenCensus - A stats collection and distributed tracing framework
 [![Gitter chat][gitter-image]][gitter-url]
 [![Maven Central][maven-image]][maven-url]
@@ -6,22 +14,35 @@
 [![Windows Build Status][appveyor-image]][appveyor-url]
 [![Coverage Status][codecov-image]][codecov-url]
 
+> :exclamation: The [opencensus-contrib-log-correlation-log4j2](https://github.com/census-instrumentation/opencensus-java/tree/master/contrib/log_correlation/stackdriver)
+> Java client library  is part of the OpenCensus project.
+> [CVE-2021-44228](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-44228) 
+> and [CVE-2021-45046](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-45046) disclosed
+> security vulnerabilities in the Apache Log4j 2 version 2.15 or below. The recent version
+> v0.28.3 depends on Log4j 2.11.1. A number of previous versions also depend on vulnerable 
+> Log4j versions.
+> 
+> :exclamation: We merged several fixes and published a release that depends on a safe version of 
+> Log4j (2.16). **We strongly encourage customers who depend on the 
+> opencensus-contrib-log-correlation-log4j2 library to upgrade to the latest 
+> release [(v0.30.0)](https://repo1.maven.org/maven2/io/opencensus/opencensus-contrib-log-correlation-log4j2/0.30.0/).**
 
 OpenCensus is a toolkit for collecting application performance and behavior data. It currently
 includes 3 apis: stats, tracing and tags.
 
-The library is in [Beta](#versioning) stage and APIs are expected to be mostly stable. The 
-library is expected to move to [GA](#versioning) stage after v1.0.0 major release.
+The library is in [Beta](#versioning) stage and APIs are expected to be mostly stable.
 
 Please join [gitter](https://gitter.im/census-instrumentation/Lobby) for help or feedback on this
 project.
+
+**OpenCensus and OpenTracing have merged to form OpenTelemetry, which serves as the next major version of OpenCensus and OpenTracing. OpenTelemetry will offer backwards compatibility with existing OpenCensus integrations, and we will continue to make security patches to existing OpenCensus libraries for two years. Read more about the merger [here](https://medium.com/opentracing/a-roadmap-to-convergence-b074e5815289).**
 
 ## OpenCensus Quickstart for Libraries
 
 Integrating OpenCensus with a new library means recording stats or traces and propagating context.
 For application integration please see [Quickstart for Applications](https://github.com/census-instrumentation/opencensus-java#quickstart-for-applications).
 
-The full quick start example can also be found on the [OpenCensus website](https://opencensus.io/java/index.html).
+The full quick start example can also be found on the [OpenCensus website](https://opencensus.io/quickstart/java/).
 
 ### Add the dependencies to your project
 
@@ -31,32 +52,15 @@ For Maven add to your `pom.xml`:
   <dependency>
     <groupId>io.opencensus</groupId>
     <artifactId>opencensus-api</artifactId>
-    <version>0.16.1</version>
+    <version>0.30.0</version>
   </dependency>
 </dependencies>
 ```
 
 For Gradle add to your dependencies:
-```gradle
-compile 'io.opencensus:opencensus-api:0.16.1'
+```groovy
+compile 'io.opencensus:opencensus-api:0.30.0'
 ```
-
-For Bazel add the following lines to the WORKSPACE file:
-```
-maven_jar(
-    name = "io_opencensus_opencensus_api",
-    artifact = "io.opencensus:opencensus-api:0.15.0",
-    sha1 = "9a098392b287d7924660837f4eba0ce252013683",
-)
-```
-Then targets can specify `@io_opencensus_opencensus_api//jar` as a dependency to depend on this jar:
-```bazel
-deps = [
-    "@io_opencensus_opencensus_api//jar",
-]
-```
-You may also need to import the transitive dependencies. See [generate external dependencies from 
-Maven projects](https://docs.bazel.build/versions/master/generate-workspace.html).
 
 ### Hello "OpenCensus" trace events
 
@@ -198,55 +202,22 @@ For Maven add to your `pom.xml`:
   <dependency>
     <groupId>io.opencensus</groupId>
     <artifactId>opencensus-api</artifactId>
-    <version>0.16.1</version>
+    <version>0.30.0</version>
   </dependency>
   <dependency>
     <groupId>io.opencensus</groupId>
     <artifactId>opencensus-impl</artifactId>
-    <version>0.16.1</version>
+    <version>0.30.0</version>
     <scope>runtime</scope>
   </dependency>
 </dependencies>
 ```
 
 For Gradle add to your dependencies:
-```gradle
-compile 'io.opencensus:opencensus-api:0.16.1'
-runtime 'io.opencensus:opencensus-impl:0.16.1'
+```groovy
+compile 'io.opencensus:opencensus-api:0.30.0'
+runtime 'io.opencensus:opencensus-impl:0.30.0'
 ```
-
-For Bazel add the following lines to the WORKSPACE file:
-```
-maven_jar(
-    name = "io_opencensus_opencensus_api",
-    artifact = "io.opencensus:opencensus-api:0.15.0",
-    sha1 = "9a098392b287d7924660837f4eba0ce252013683",
-)
-
-maven_jar(
-    name = "io_opencensus_opencensus_impl_core",
-    artifact = "io.opencensus:opencensus-impl-core:0.15.0",
-    sha1 = "36c775926ba1e54af7c37d0503cfb99d986f6229",
-)
-
-maven_jar(
-    name = "io_opencensus_opencensus_impl",
-    artifact = "io.opencensus:opencensus-impl:0.15.0",
-    sha1 = "d7bf0d7ee5a0594f840271c11c9f8d6f754f35d6",
-)
-```
-Then add the following lines to BUILD.bazel file:
-```bazel
-deps = [
-    "@io_opencensus_opencensus_api//jar",
-]
-runtime_deps = [
-    "@io_opencensus_opencensus_impl_core//jar",
-    "@io_opencensus_opencensus_impl//jar",
-]
-```
-Again you may need to import the transitive dependencies. See [generate external dependencies from 
-Maven projects](https://docs.bazel.build/versions/master/generate-workspace.html).
 
 ### How to setup exporters?
 
