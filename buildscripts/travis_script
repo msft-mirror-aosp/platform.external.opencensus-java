@@ -1,0 +1,64 @@
+#!/bin/bash
+#
+# Travis build script, cf.
+# https://docs.travis-ci.com/user/customizing-the-build/#Implementing-Complex-Build-Steps.
+
+set -o errexit
+set -o xtrace
+
+case "$TASK" in
+  "CHECK_GIT_HISTORY")
+    python "$(dirname "$0")"/check-git-history.py
+    ;;
+  "BUILD")
+    case "$TRAVIS_OS_NAME" in
+      "linux")
+        case "$TRAVIS_JDK_VERSION" in
+          "oraclejdk9")
+            ./gradlew clean assemble check --stacktrace
+            ;;
+          "openjdk10")
+            ./gradlew clean assemble check --stacktrace
+            ;;
+          "openjdk11")
+            ./gradlew clean assemble check --stacktrace
+            ;;
+          "openjdk8")
+            ./gradlew clean assemble --stacktrace
+            ./gradlew check :opencensus-all:jacocoTestReport
+            ./gradlew verGJF
+            ;;
+          *)
+            echo "Unknown JDK version $TRAVIS_JDK_VERSION"
+            exit 1
+            ;;
+        esac
+        ;;
+      "osx")
+        # OS X is a separate case, because the JDK version is determined by the OS X image:
+        # https://docs.travis-ci.com/user/reference/osx/#JDK-and-OS-X
+        ./gradlew clean assemble --stacktrace
+        ./gradlew check
+        ;;
+      *)
+        echo "Unknown OS name $TRAVIS_OS_NAME"
+        exit 1
+        ;;
+    esac
+    ;;
+  "CHECKER_FRAMEWORK")
+    ./gradlew clean assemble -PcheckerFramework=true
+    ;;
+  "BUILD_EXAMPLES_GRADLE")
+    pushd examples && ./gradlew clean assemble --stacktrace && ./gradlew check && ./gradlew verGJF && popd
+    pushd examples/spring/servlet && ./gradlew clean assemble --stacktrace && ./gradlew check && ./gradlew verGJF && popd
+    ;;
+  "BUILD_EXAMPLES_MAVEN")
+    pushd examples && mvn clean package appassembler:assemble -e && popd
+    pushd examples/spring/servlet && mvn clean package appassembler:assemble -e && popd
+    ;;
+  *)
+    echo "Unknown task $TASK"
+    exit 1
+    ;;
+esac

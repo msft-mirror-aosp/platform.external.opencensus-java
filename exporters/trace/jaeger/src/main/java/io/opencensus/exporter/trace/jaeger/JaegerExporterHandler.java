@@ -21,59 +21,57 @@ import static java.lang.String.format;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.primitives.Ints;
 import com.google.common.primitives.Longs;
-import com.google.errorprone.annotations.MustBeClosed;
-import com.uber.jaeger.exceptions.SenderException;
-import com.uber.jaeger.senders.HttpSender;
-import com.uber.jaeger.thriftjava.Log;
-import com.uber.jaeger.thriftjava.Process;
-import com.uber.jaeger.thriftjava.Span;
-import com.uber.jaeger.thriftjava.SpanRef;
-import com.uber.jaeger.thriftjava.SpanRefType;
-import com.uber.jaeger.thriftjava.Tag;
-import com.uber.jaeger.thriftjava.TagType;
+import io.jaegertracing.internal.exceptions.SenderException;
+import io.jaegertracing.thrift.internal.senders.ThriftSender;
+import io.jaegertracing.thriftjava.Log;
+import io.jaegertracing.thriftjava.Process;
+import io.jaegertracing.thriftjava.Span;
+import io.jaegertracing.thriftjava.SpanRef;
+import io.jaegertracing.thriftjava.SpanRefType;
+import io.jaegertracing.thriftjava.Tag;
+import io.jaegertracing.thriftjava.TagType;
+import io.opencensus.common.Duration;
 import io.opencensus.common.Function;
-import io.opencensus.common.Scope;
 import io.opencensus.common.Timestamp;
+import io.opencensus.exporter.trace.util.TimeLimitedHandler;
 import io.opencensus.trace.Annotation;
 import io.opencensus.trace.AttributeValue;
 import io.opencensus.trace.Link;
-import io.opencensus.trace.Sampler;
+import io.opencensus.trace.MessageEvent;
+import io.opencensus.trace.MessageEvent.Type;
 import io.opencensus.trace.SpanContext;
 import io.opencensus.trace.SpanId;
 import io.opencensus.trace.Status;
 import io.opencensus.trace.TraceId;
 import io.opencensus.trace.TraceOptions;
-import io.opencensus.trace.Tracer;
-import io.opencensus.trace.Tracing;
 import io.opencensus.trace.export.SpanData;
-import io.opencensus.trace.export.SpanExporter;
-import io.opencensus.trace.samplers.Samplers;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
 
 @NotThreadSafe
-final class JaegerExporterHandler extends SpanExporter.Handler {
+final class JaegerExporterHandler extends TimeLimitedHandler {
   private static final String EXPORT_SPAN_NAME = "ExportJaegerTraces";
-  private static final String DESCRIPTION = "description";
-
-  private static final Logger logger = Logger.getLogger(JaegerExporterHandler.class.getName());
-
-  /**
-   * Sampler with low probability used during the export in order to avoid the case when user sets
-   * the default sampler to always sample and we get the Thrift span of the Jaeger export call
-   * always sampled and go to an infinite loop.
-   */
-  private static final Sampler lowProbabilitySampler = Samplers.probabilitySampler(0.0001);
-
-  private static final Tracer tracer = Tracing.getTracer();
+  @VisibleForTesting static final String SPAN_KIND = "span.kind";
+  private static final Tag SERVER_KIND_TAG = new Tag(SPAN_KIND, TagType.STRING).setVStr("server");
+  private static final Tag CLIENT_KIND_TAG = new Tag(SPAN_KIND, TagType.STRING).setVStr("client");
+  private static final String DESCRIPTION = "message";
+  private static final Tag RECEIVED_MESSAGE_EVENT_TAG =
+      new Tag(DESCRIPTION, TagType.STRING).setVStr("received message");
+  private static final Tag SENT_MESSAGE_EVENT_TAG =
+      new Tag(DESCRIPTION, TagType.STRING).setVStr("sent message");
+  private static final String MESSAGE_EVENT_ID = "id";
+  private static final String MESSAGE_EVENT_COMPRESSED_SIZE = "compressed_size";
+  private static final String MESSAGE_EVENT_UNCOMPRESSED_SIZE = "uncompressed_size";
+  @VisibleForTesting static final String STATUS_CODE = "status.code";
+  @VisibleForTesting static final String STATUS_MESSAGE = "status.message";
 
   private static final Function<? super String, Tag> stringAttributeConverter =
       new Function<String, Tag>() {
@@ -137,44 +135,19 @@ final class JaegerExporterHandler extends SpanExporter.Handler {
   private final byte[] traceIdBuffer = new byte[TraceId.SIZE];
   private final byte[] optionsBuffer = new byte[Integer.SIZE / Byte.SIZE];
 
-  private final HttpSender sender;
+  private final ThriftSender sender;
   private final Process process;
 
-  JaegerExporterHandler(final HttpSender sender, final Process process) {
+  JaegerExporterHandler(final ThriftSender sender, final Process process, Duration deadline) {
+    super(deadline, EXPORT_SPAN_NAME);
     this.sender = checkNotNull(sender, "Jaeger sender must NOT be null.");
     this.process = checkNotNull(process, "Process sending traces must NOT be null.");
   }
 
   @Override
-  public void export(final Collection<SpanData> spanDataList) {
-    final Scope exportScope = newExportScope();
-    try {
-      doExport(spanDataList);
-    } catch (SenderException e) {
-      tracer
-          .getCurrentSpan() // exportScope above.
-          .setStatus(Status.UNKNOWN.withDescription(getMessageOrDefault(e)));
-      logger.log(Level.WARNING, "Failed to export traces to Jaeger: " + e);
-    } finally {
-      exportScope.close();
-    }
-  }
-
-  @MustBeClosed
-  private static Scope newExportScope() {
-    // Start a new span with explicit sampler (with low probability) to avoid the case when user
-    // sets the default sampler to always sample and we get the Thrift span of the Jaeger
-    // export call always sampled and go to an infinite loop.
-    return tracer.spanBuilder(EXPORT_SPAN_NAME).setSampler(lowProbabilitySampler).startScopedSpan();
-  }
-
-  private void doExport(final Collection<SpanData> spanDataList) throws SenderException {
+  public void timeLimitedExport(final Collection<SpanData> spanDataList) throws SenderException {
     final List<Span> spans = spanDataToJaegerThriftSpans(spanDataList);
     sender.send(process, spans);
-  }
-
-  private static String getMessageOrDefault(final SenderException e) {
-    return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
   }
 
   private List<Span> spanDataToJaegerThriftSpans(final Collection<SpanData> spanDataList) {
@@ -192,7 +165,12 @@ final class JaegerExporterHandler extends SpanExporter.Handler {
     final SpanContext context = spanData.getContext();
     copyToBuffer(context.getTraceId());
 
-    return new com.uber.jaeger.thriftjava.Span(
+    List<Tag> tags =
+        attributesToTags(
+            spanData.getAttributes().getAttributeMap(), spanKindToTag(spanData.getKind()));
+    addStatusTags(tags, spanData.getStatus());
+
+    return new io.jaegertracing.thriftjava.Span(
             traceIdLow(),
             traceIdHigh(),
             spanIdToLong(context.getSpanId()),
@@ -202,8 +180,10 @@ final class JaegerExporterHandler extends SpanExporter.Handler {
             startTimeInMicros,
             endTimeInMicros - startTimeInMicros)
         .setReferences(linksToReferences(spanData.getLinks().getLinks()))
-        .setTags(attributesToTags(spanData.getAttributes().getAttributeMap()))
-        .setLogs(annotationEventsToLogs(spanData.getAnnotations().getEvents()));
+        .setTags(tags)
+        .setLogs(
+            timedEventsToLogs(
+                spanData.getAnnotations().getEvents(), spanData.getMessageEvents().getEvents()));
   }
 
   private void copyToBuffer(final TraceId traceId) {
@@ -282,8 +262,9 @@ final class JaegerExporterHandler extends SpanExporter.Handler {
         format("Failed to convert link type [%s] to a Jaeger SpanRefType.", type));
   }
 
-  private static List<Tag> attributesToTags(final Map<String, AttributeValue> attributes) {
-    final List<Tag> tags = Lists.newArrayListWithExpectedSize(attributes.size());
+  private static List<Tag> attributesToTags(
+      final Map<String, AttributeValue> attributes, @Nullable final Tag extraTag) {
+    final List<Tag> tags = Lists.newArrayListWithExpectedSize(attributes.size() + 1);
     for (final Map.Entry<String, AttributeValue> entry : attributes.entrySet()) {
       final Tag tag =
           entry
@@ -297,18 +278,46 @@ final class JaegerExporterHandler extends SpanExporter.Handler {
       tag.setKey(entry.getKey());
       tags.add(tag);
     }
+    if (extraTag != null) {
+      tags.add(extraTag);
+    }
     return tags;
   }
 
-  private static List<Log> annotationEventsToLogs(
-      final List<SpanData.TimedEvent<Annotation>> events) {
-    final List<Log> logs = Lists.newArrayListWithExpectedSize(events.size());
-    for (final SpanData.TimedEvent<Annotation> event : events) {
+  private static List<Log> timedEventsToLogs(
+      final List<SpanData.TimedEvent<Annotation>> annotations,
+      final List<SpanData.TimedEvent<MessageEvent>> messageEvents) {
+    final List<Log> logs =
+        Lists.newArrayListWithExpectedSize(annotations.size() + messageEvents.size());
+    for (final SpanData.TimedEvent<Annotation> event : annotations) {
       final long timestampsInMicros = timestampToMicros(event.getTimestamp());
-      final List<Tag> tags = attributesToTags(event.getEvent().getAttributes());
-      tags.add(descriptionToTag(event.getEvent().getDescription()));
-      final Log log = new Log(timestampsInMicros, tags);
-      logs.add(log);
+      logs.add(
+          new Log(
+              timestampsInMicros,
+              attributesToTags(
+                  event.getEvent().getAttributes(),
+                  descriptionToTag(event.getEvent().getDescription()))));
+    }
+    for (final SpanData.TimedEvent<MessageEvent> event : messageEvents) {
+      final long timestampsInMicros = timestampToMicros(event.getTimestamp());
+      final Tag tagMessageId =
+          new Tag(MESSAGE_EVENT_ID, TagType.LONG).setVLong(event.getEvent().getMessageId());
+      final Tag tagCompressedSize =
+          new Tag(MESSAGE_EVENT_COMPRESSED_SIZE, TagType.LONG)
+              .setVLong(event.getEvent().getCompressedMessageSize());
+      final Tag tagUncompressedSize =
+          new Tag(MESSAGE_EVENT_UNCOMPRESSED_SIZE, TagType.LONG)
+              .setVLong(event.getEvent().getUncompressedMessageSize());
+      logs.add(
+          new Log(
+              timestampsInMicros,
+              Arrays.asList(
+                  event.getEvent().getType() == Type.RECEIVED
+                      ? RECEIVED_MESSAGE_EVENT_TAG
+                      : SENT_MESSAGE_EVENT_TAG,
+                  tagMessageId,
+                  tagCompressedSize,
+                  tagUncompressedSize)));
     }
     return logs;
   }
@@ -317,5 +326,31 @@ final class JaegerExporterHandler extends SpanExporter.Handler {
     final Tag tag = new Tag(DESCRIPTION, TagType.STRING);
     tag.setVStr(description);
     return tag;
+  }
+
+  @Nullable
+  private static Tag spanKindToTag(@Nullable final io.opencensus.trace.Span.Kind kind) {
+    if (kind == null) {
+      return null;
+    }
+
+    switch (kind) {
+      case CLIENT:
+        return CLIENT_KIND_TAG;
+      case SERVER:
+        return SERVER_KIND_TAG;
+    }
+    return null;
+  }
+
+  private static void addStatusTags(List<Tag> tags, @Nullable Status status) {
+    if (status == null) {
+      return;
+    }
+    Tag statusTag = new Tag(STATUS_CODE, TagType.LONG).setVLong(status.getCanonicalCode().value());
+    tags.add(statusTag);
+    if (status.getDescription() != null) {
+      tags.add(new Tag(STATUS_MESSAGE, TagType.STRING).setVStr(status.getDescription()));
+    }
   }
 }

@@ -42,8 +42,6 @@ public class DoubleGaugeTest {
   private static final List<LabelKey> EMPTY_LABEL_KEYS = new ArrayList<LabelKey>();
   private static final List<LabelValue> EMPTY_LABEL_VALUES = new ArrayList<LabelValue>();
 
-  // TODO(mayurkale): Add more tests, once DoubleGauge plugs-in into the registry.
-
   @Test
   public void noopGetOrCreateTimeSeries_WithNullLabelValues() {
     DoubleGauge doubleGauge =
@@ -58,7 +56,7 @@ public class DoubleGaugeTest {
     List<LabelValue> labelValues = Collections.singletonList(null);
     DoubleGauge doubleGauge = DoubleGauge.newNoopDoubleGauge(NAME, DESCRIPTION, UNIT, LABEL_KEY);
     thrown.expect(NullPointerException.class);
-    thrown.expectMessage("labelValue element should not be null.");
+    thrown.expectMessage("labelValue");
     doubleGauge.getOrCreateTimeSeries(labelValues);
   }
 
@@ -66,7 +64,7 @@ public class DoubleGaugeTest {
   public void noopGetOrCreateTimeSeries_WithInvalidLabelSize() {
     DoubleGauge doubleGauge = DoubleGauge.newNoopDoubleGauge(NAME, DESCRIPTION, UNIT, LABEL_KEY);
     thrown.expect(IllegalArgumentException.class);
-    thrown.expectMessage("Incorrect number of labels.");
+    thrown.expectMessage("Label Keys and Label Values don't have same size.");
     doubleGauge.getOrCreateTimeSeries(EMPTY_LABEL_VALUES);
   }
 
@@ -81,8 +79,9 @@ public class DoubleGaugeTest {
   @Test
   public void noopSameAs() {
     DoubleGauge doubleGauge = DoubleGauge.newNoopDoubleGauge(NAME, DESCRIPTION, UNIT, LABEL_KEY);
-    assertThat(doubleGauge.getDefaultTimeSeries()).isSameAs(doubleGauge.getDefaultTimeSeries());
     assertThat(doubleGauge.getDefaultTimeSeries())
-        .isSameAs(doubleGauge.getOrCreateTimeSeries(LABEL_VALUES));
+        .isSameInstanceAs(doubleGauge.getDefaultTimeSeries());
+    assertThat(doubleGauge.getDefaultTimeSeries())
+        .isSameInstanceAs(doubleGauge.getOrCreateTimeSeries(LABEL_VALUES));
   }
 }
