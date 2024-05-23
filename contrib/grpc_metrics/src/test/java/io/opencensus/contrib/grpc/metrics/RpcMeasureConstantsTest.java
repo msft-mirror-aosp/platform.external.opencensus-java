@@ -52,9 +52,14 @@ public class RpcMeasureConstantsTest {
     assertThat(RpcMeasureConstants.GRPC_CLIENT_SENT_MESSAGES_PER_RPC).isNotNull();
     assertThat(RpcMeasureConstants.GRPC_CLIENT_RECEIVED_BYTES_PER_RPC).isNotNull();
     assertThat(RpcMeasureConstants.GRPC_CLIENT_RECEIVED_MESSAGES_PER_RPC).isNotNull();
+    assertThat(RpcMeasureConstants.GRPC_CLIENT_SENT_BYTES_PER_METHOD).isNotNull();
+    assertThat(RpcMeasureConstants.GRPC_CLIENT_RECEIVED_BYTES_PER_METHOD).isNotNull();
     assertThat(RpcMeasureConstants.GRPC_CLIENT_SERVER_LATENCY).isNotNull();
     assertThat(RpcMeasureConstants.GRPC_CLIENT_ROUNDTRIP_LATENCY).isNotNull();
     assertThat(RpcMeasureConstants.GRPC_CLIENT_STARTED_RPCS).isNotNull();
+    assertThat(RpcMeasureConstants.GRPC_CLIENT_RETRIES_PER_CALL).isNotNull();
+    assertThat(RpcMeasureConstants.GRPC_CLIENT_TRANSPARENT_RETRIES_PER_CALL).isNotNull();
+    assertThat(RpcMeasureConstants.GRPC_CLIENT_RETRY_DELAY_PER_CALL).isNotNull();
 
     // Test server measurement descriptors.
     assertThat(RpcMeasureConstants.RPC_SERVER_ERROR_COUNT).isNotNull();
@@ -72,6 +77,8 @@ public class RpcMeasureConstantsTest {
     assertThat(RpcMeasureConstants.GRPC_SERVER_SENT_MESSAGES_PER_RPC).isNotNull();
     assertThat(RpcMeasureConstants.GRPC_SERVER_RECEIVED_BYTES_PER_RPC).isNotNull();
     assertThat(RpcMeasureConstants.GRPC_SERVER_RECEIVED_MESSAGES_PER_RPC).isNotNull();
+    assertThat(RpcMeasureConstants.GRPC_SERVER_SENT_BYTES_PER_METHOD).isNotNull();
+    assertThat(RpcMeasureConstants.GRPC_SERVER_RECEIVED_BYTES_PER_METHOD).isNotNull();
     assertThat(RpcMeasureConstants.GRPC_SERVER_SERVER_LATENCY).isNotNull();
     assertThat(RpcMeasureConstants.GRPC_SERVER_STARTED_RPCS).isNotNull();
   }

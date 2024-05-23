@@ -3,52 +3,44 @@
 ## To build the examples use
 
 ### Gradle
-```
-$ ./gradlew installDist
+```bash
+./gradlew installDist
 ```
 
 ### Maven
-```
-$ mvn package appassembler:assemble
+```bash
+mvn package appassembler:assemble
 ```
 
-### Bazel
+To build Spring Servlet example
+```bash
+cd spring/servlet
+mvn package appassembler:assemble
 ```
-$ bazel build :all
-```
+
 
 ## To run "TagContextExample" use
 
 ### Gradle
-```
-$ ./build/install/opencensus-examples/bin/TagContextExample
+```bash
+./build/install/opencensus-examples/bin/TagContextExample
 ```
 
 ### Maven
-```
-$ ./target/appassembler/bin/TagContextExample
-```
-
-### Bazel
-```
-$ ./bazel-bin/TagContextExample
+```bash
+./target/appassembler/bin/TagContextExample
 ```
 
 ## To run "ZPagesTester"
 
 ### Gradle
-```
-$ ./build/install/opencensus-examples/bin/ZPagesTester
+```bash
+./build/install/opencensus-examples/bin/ZPagesTester
 ```
 
 ### Maven
-```
-$ ./target/appassembler/bin/ZPagesTester
-```
-
-### Bazel
-```
-$ ./bazel-bin/ZPagesTester
+```bash
+./target/appassembler/bin/ZPagesTester
 ```
 
 Available pages:
@@ -65,18 +57,13 @@ Available pages:
 ## To run "QuickStart" example use
 
 ### Gradle
-```
-$ ./build/install/opencensus-examples/bin/QuickStart
+```bash
+./build/install/opencensus-examples/bin/QuickStart
 ```
 
 ### Maven
-```
-$ ./target/appassembler/bin/QuickStart
-```
-
-### Bazel
-```
-$ ./bazel-bin/QuickStart
+```bash
+./target/appassembler/bin/QuickStart
 ```
 
 ## To run "gRPC Hello World" example use
@@ -95,19 +82,119 @@ will be used:
 However, if you want to specify any of these arguements, please make sure they are in order.
 
 ### Gradle
+```bash
+./build/install/opencensus-examples/bin/HelloWorldServer serverPort cloudProjectId zPagePort prometheusPort
+./build/install/opencensus-examples/bin/HelloWorldClient user host serverPort cloudProjectId zPagePort
 ```
-$ ./build/install/opencensus-examples/bin/HelloWorldServer serverPort cloudProjectId zPagePort prometheusPort
-$ ./build/install/opencensus-examples/bin/HelloWorldClient user host serverPort cloudProjectId zPagePort
+
+### Maven
+```bash
+./target/appassembler/bin/HelloWorldServer serverPort cloudProjectId zPagePort prometheusPort
+./target/appassembler/bin/HelloWorldClient user host serverPort cloudProjectId zPagePort
+```
+
+## To run "Repl" example
+
+See the full tutorial on [OpenCensus website](https://opencensus.io/quickstart/java/metrics/).
+
+First run:
+
+### Gradle
+```bash
+./build/install/opencensus-examples/bin/Repl
+```
+
+### Maven
+```bash
+./target/appassembler/bin/Repl
+```
+
+Then start the Prometheus process:
+```bash
+cd src/main/java/io/opencensus/examples/quickstart/
+prometheus --config.file=prometheus.yaml
+```
+
+Stats will be shown on Prometheus UI on http://localhost:9090.
+
+## To run "StackdriverQuickstart" use
+
+See the full tutorial on [OpenCensus website](https://opencensus.io/guides/exporters/supported-exporters/java/stackdriver/).
+
+### Gradle
+```bash
+./build/install/opencensus-examples/bin/StackdriverQuickstart
 ```
 
 ### Maven
 ```
-$ ./target/appassembler/bin/HelloWorldServer serverPort cloudProjectId zPagePort prometheusPort
-$ ./target/appassembler/bin/HelloWorldClient user host serverPort cloudProjectId zPagePort
+./target/appassembler/bin/StackdriverQuickstart
 ```
 
-### Bazel
+## To run HTTP Server and Client
+
+`HttpJettyServer` is a web service using Jetty Server on top of http-servlet.
+`HttpJettyClient` is a web client using Jetty Client that sends request to `HttpettyServer`.
+Both `HttpJettyServer` and `HttpJettyClient` are instrumented with OpenCensus.
+
+Traces from both client and server can be viewed in their respective logs on console.
+Stats are available from Prometheus server running at
+- http://localhost:9091/metrics - for client stats
+- http://localhost:9090/metrics - for server stats
+  
+
+### Gradle
+```bash
+./build/install/opencensus-examples/bin/HttpJettyServer
+./build/install/opencensus-examples/bin/HttpJettyClient
 ```
-$ ./bazel-bin/HelloWorldServer serverPort cloudProjectId zPagePort prometheusPort
-$ ./bazel-bin/HelloWorldClient user host serverPort cloudProjectId zPagePort
+
+### Maven
+```bash
+./target/appassembler/bin/HttpJettyServer
+./target/appassembler/bin/HttpJettyClient
 ```
+
+## To run OcAgentExportersQuickStart
+
+### Gradle
+```bash
+./build/install/opencensus-examples/bin/OcAgentExportersQuickStart agentEndpoint # default is localhost:56678
+```
+
+### Maven
+```bash
+./target/appassembler/bin/OcAgentExportersQuickStart agentEndpoint # default is localhost:56678
+```
+
+You also need to install and start OpenCensus-Agent in order to receive the traces and metrics.
+For more information on setting up Agent, see [tutorial](https://opencensus.io/agent/).
+
+## To run Spring HTTP Server and Client
+
+`SpringServletApplication` is a web service application using Spring framework. The application
+is instrumented with opencensus simply by incuding opencensus-contrib-spring-starter package.
+The instrumentation enables tracing on incoming and outgoing http requests. On receiving GET 
+request, the server originates multiple GET requests to itself using AsyncRestTemplate on different
+endpoint.
+
+Send a http GET request using curl to see the traces on console.
+```
+curl http://localhost:8080
+```
+
+Stats are available from Prometheus server running at
+- http://localhost:9090/metrics - for server and client stats
+  
+### Gradle
+```bash
+cd spring/servlet
+./gradlew bootRun
+```
+
+### Maven
+```bash
+cd spring/servlet
+./target/appassembler/bin/SpringServletApplication
+```
+
