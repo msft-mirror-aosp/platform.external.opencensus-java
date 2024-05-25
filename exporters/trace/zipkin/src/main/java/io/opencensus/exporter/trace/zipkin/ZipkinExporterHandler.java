@@ -19,22 +19,19 @@ package io.opencensus.exporter.trace.zipkin;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
+import com.google.common.annotations.VisibleForTesting;
+import io.opencensus.common.Duration;
 import io.opencensus.common.Function;
 import io.opencensus.common.Functions;
-import io.opencensus.common.Scope;
 import io.opencensus.common.Timestamp;
+import io.opencensus.exporter.trace.util.TimeLimitedHandler;
 import io.opencensus.trace.Annotation;
 import io.opencensus.trace.AttributeValue;
-import io.opencensus.trace.Sampler;
 import io.opencensus.trace.Span.Kind;
 import io.opencensus.trace.SpanContext;
 import io.opencensus.trace.Status;
-import io.opencensus.trace.Tracer;
-import io.opencensus.trace.Tracing;
 import io.opencensus.trace.export.SpanData;
 import io.opencensus.trace.export.SpanData.TimedEvent;
-import io.opencensus.trace.export.SpanExporter;
-import io.opencensus.trace.samplers.Samplers;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
@@ -54,18 +51,23 @@ import zipkin2.reporter.Sender;
 import org.checkerframework.checker.nullness.qual.Nullable;
 */
 
-final class ZipkinExporterHandler extends SpanExporter.Handler {
-  private static final Tracer tracer = Tracing.getTracer();
-  private static final Sampler probabilitySampler = Samplers.probabilitySampler(0.0001);
+final class ZipkinExporterHandler extends TimeLimitedHandler {
   private static final Logger logger = Logger.getLogger(ZipkinExporterHandler.class.getName());
+  private static final String EXPORT_SPAN_NAME = "SendZipkinSpans";
 
-  private static final String STATUS_CODE = "census.status_code";
-  private static final String STATUS_DESCRIPTION = "census.status_description";
+  // The naming follows Zipkin convention. As an example see:
+  // https://github.com/apache/incubator-zipkin-brave/blob/643b7245c462dc14d47afcdb076b2603fd421497/instrumentation/grpc/src/main/java/brave/grpc/GrpcParser.java#L67-L73
+  @VisibleForTesting static final String STATUS_CODE = "opencensus.status_code";
+  @VisibleForTesting static final String STATUS_DESCRIPTION = "opencensus.status_description";
+  @VisibleForTesting static final String STATUS_ERROR = "error";
+
   private final SpanBytesEncoder encoder;
   private final Sender sender;
   private final Endpoint localEndpoint;
 
-  ZipkinExporterHandler(SpanBytesEncoder encoder, Sender sender, String serviceName) {
+  ZipkinExporterHandler(
+      SpanBytesEncoder encoder, Sender sender, String serviceName, Duration deadline) {
+    super(deadline, EXPORT_SPAN_NAME);
     this.encoder = encoder;
     this.sender = sender;
     this.localEndpoint = produceLocalEndpoint(serviceName);
@@ -134,6 +136,9 @@ final class ZipkinExporterHandler extends SpanExporter.Handler {
       if (status.getDescription() != null) {
         spanBuilder.putTag(STATUS_DESCRIPTION, status.getDescription());
       }
+      if (!status.isOk()) {
+        spanBuilder.putTag(STATUS_ERROR, status.getCanonicalCode().toString());
+      }
     }
 
     for (TimedEvent<Annotation> annotation : spanData.getAnnotations().getEvents()) {
@@ -187,29 +192,11 @@ final class ZipkinExporterHandler extends SpanExporter.Handler {
   }
 
   @Override
-  public void export(Collection<SpanData> spanDataList) {
-    // Start a new span with explicit 1/10000 sampling probability to avoid the case when user
-    // sets the default sampler to always sample and we get the gRPC span of the zipkin
-    // export call always sampled and go to an infinite loop.
-    Scope scope =
-        tracer.spanBuilder("SendZipkinSpans").setSampler(probabilitySampler).startScopedSpan();
-    try {
-      List<byte[]> encodedSpans = new ArrayList<byte[]>(spanDataList.size());
-      for (SpanData spanData : spanDataList) {
-        encodedSpans.add(encoder.encode(generateSpan(spanData, localEndpoint)));
-      }
-      try {
-        sender.sendSpans(encodedSpans).execute();
-      } catch (IOException e) {
-        tracer
-            .getCurrentSpan()
-            .setStatus(
-                Status.UNKNOWN.withDescription(
-                    e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
-        throw new RuntimeException(e); // TODO: should we instead do drop metrics?
-      }
-    } finally {
-      scope.close();
+  public void timeLimitedExport(final Collection<SpanData> spanDataList) throws IOException {
+    List<byte[]> encodedSpans = new ArrayList<byte[]>(spanDataList.size());
+    for (SpanData spanData : spanDataList) {
+      encodedSpans.add(encoder.encode(generateSpan(spanData, localEndpoint)));
     }
+    sender.sendSpans(encodedSpans).execute();
   }
 }

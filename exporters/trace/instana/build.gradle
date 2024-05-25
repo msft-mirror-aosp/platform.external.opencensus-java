@@ -6,10 +6,11 @@ description = 'OpenCensus Trace Instana Exporter'
 }
 
 dependencies {
-    compile project(':opencensus-api'),
-            libraries.guava
+    compileOnly libraries.auto_value
 
-    testCompile project(':opencensus-api')
+    compile project(':opencensus-api'),
+            project(':opencensus-exporter-trace-util'),
+            libraries.guava
 
     signature "org.codehaus.mojo.signature:java17:1.0@signature"
     signature "net.sf.androidscents.signature:android-api-level-14:4.0_r4@signature"

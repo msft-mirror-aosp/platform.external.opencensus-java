@@ -1,4 +1,115 @@
 ## Unreleased
+
+- fix: Shutdown `MetricServiceClient` properly on `StackdriverStatsExporter.unregister()` (#2007)
+
+## 0.28.3 - 2021-01-12
+
+- fix: Return public access to unsafe `ContextUtils` api.  Remove bincompat issue from 0.27.1. (#2072)
+- fix: When time rewinds, avoid throwing exceptions and crashing the disruptor thread. (#2071)
+
+## 0.28.2 - 2020-10-22
+
+- feat: Make TracerImpl public for OpenTelemetry migration. (#2064) 
+
+Note: no binary available for 0.28.2
+
+## 0.28.1 - 2020-10-21
+
+- feat: Add Support for Opencensus to OpenTelemetry migration (#2059)
+
+Breaking change: ContextUtils is no longer public
+
+## 0.28.0 - 2020-10-21
+
+- Remove finalize from RecordEventsSpanImpl (#2043)
+
+## 0.27.0 - 2020-08-14
+- deps: update protobuf (#2029)
+- Update release versions for all readme and build files. (#2028)
+- deps: update Guava to 29.0 (#2032)
+- Add more InstanaExporterHandler tests (#2014)
+- feat: Allow users to specify a metric display name prefix, separately from the metric name prefix (#2050)
+
+## 0.26.0 - 2020-03-19
+- feat: Allow users to register the same Meter multiple times without exception (#2017)
+- update gRPC (#2024): Since gRPC v1.27.0, census dependency is removed from grpc-core. A grpc-census
+artifact now exists to provide interceptor/stream tracer factory that applies census stats/tracing features.
+For users not using gRPC’s integration of census, nothing should be affected. Users who want census integration
+need to add grpc-census artifact to runtime classpath.
+- deps: update GSON (#2025)
+- deps: update auth libraries (#2023)
+- update guava (#2018)
+
+## 0.25.0 - 2020-02-12
+- Add an experimental artifact `opencensus-contrib-observability-ready-util`, that allows users to
+use OpenCensus easily.
+
+## 0.24.0 - 2019-08-27
+- Remove `CONTEXT_SPAN_KEY` and `TAG_CONTEXT_KEY` from API. This will be a breaking change to those who
+depend on these two keys, but anyone except gRPC shouldn't use it directly anyway.
+
+## 0.23.0 - 2019-06-12
+- Make `StackdriverStatsExporter.unregister()` a public API.
+- Add support spring plugin for http servlet and AsyncRestTemplate.
+
+## 0.22.1 - 2019-05-21
+- Increase the buffer size for the trace export batch to 2500 (previously it was 32).
+
+## 0.22.0 - 2019-05-14
+- Disable RunningSpanStore by default unless the z-pages contrib is linked and initialized. This may
+break behaviors for applications that rely on this to be always enabled.
+- Provide a `Deadline` option to Stackdriver Trace exporter. Default value is 10 seconds if it's not set.
+- Provide a `Deadline` option to Stackdriver Stats exporter. Default value is 10 seconds.
+Also provide a `MetricServiceStub` option so that advanced users can use a custom Stackdriver
+Monitoring client to make RPCs.
+- Use `Configuration` builder pattern for creating `JaegerTraceExporter`, `ZipkinTraceExporter` and
+`InstanaTraceExporter`. Provide a `Deadline` option with default value 10 seconds.
+- Provide a `Deadline` option to Datadog, Elasticsearch and OcAgent exporter. Default value is 10 seconds.
+- Extract the common timeout logic of Trace exporters to `opencensus-exporter-trace-util`.
+
+## 0.21.0 - 2019-04-30
+- Add HTTP text format serializer to Tag propagation component.
+- Support constant labels in Gauge APIs.
+- Add an option to allow users to override the default "opencensus_task" metric label in Stackdriver Stats Exporter.
+- Allow setting custom namespace in Prometheus exporter.
+- Add Cumulative (`DoubleCumulative`, `LongCumulative`, `DerivedDoubleCumulative`, `DerivedLongCumulative`) APIs.
+- Add convenience APIs `TagContextBuilder.putLocal()` that adds non-propagating tags,
+and `TagContextBuilder.putPropagating()` that adds unlimited propagating tags.
+- Deprecate context keys for tags and spans. Provide helper methods for interacting with context.
+
+## 0.20.0 - 2019-03-28
+- Add OpenCensus Java OC-Agent Trace Exporter.
+- Add OpenCensus Java OC-Agent Metrics Exporter.
+- Add config option for Http-Servlet.
+- Add config option for Jetty Http Client.
+- Modified default value to false for publicEndpoint property in Http-Servlet.
+- Add a generic `AttachmentValue` class to support `Exemplar`.
+- Add Elasticsearch Trace Exporter.
+- Add `metrics.data` package to hold common classes shared between stats and metrics.
+- Refactor `Exemplar` and `AttachmentValue` to be under `metrics.data`. Note that this is a breaking change
+if you're using the `Exemplar` classes or APIs in the previous releases.
+- Add `TagMetadata` that defines the properties associated with a `Tag`.
+- Add `QueueMetricProducer` that supports pushing and buffering `Metric`s.
+
+## 0.19.0 - 2019-01-28
+- Add an artifact `opencensus-contrib-http-jetty-client` for instrumenting jetty http client. Add extractor for Jetty Client.
+- Add an artifact `opencensus-contrib-http-servlets` for instrumenting http servlets. Add extractor for Http Servlets.
+- Add support generic http server handler.
+- Add support for generic http client handler.
+- Add ability to filter metrics collected from Dropwizard registry.
+- Add an util artifact opencensus-contrib-dropwizard5 to translate Dropwizard metrics5 to OpenCensus.
+- Add metrics util package to be shared by all metrics exporters.
+- Add Datadog Trace Exporter.
+
+## 0.18.0 - 2018-11-27
+- Set the
+  [`trace_sampled` field](https://github.com/googleapis/googleapis/blob/8027f17420d5a323c7dfef1ae0e57d82f3b97430/google/logging/v2/log_entry.proto#L143-L149) in the Stackdriver `LogEntry` protocol buffer in `opencensus-contrib-log-correlation-stackdriver`.
+- Add support for w3c/distributed-tracing propagation format.
+- Add gRPC measures and views for real-time metrics in streaming RPCs.
+- Add Summary Metric support for Stackdriver exporter.
+- Reduce CPU usage for low qps applications.
+
+## 0.17.0 - 2018-11-02
 - Add `AttributeValueDouble` to `AttributeValue`.
 - Add `createWithSender` to `JaegerTraceExporter` to allow use of `HttpSender`
   with extra configurations.
@@ -6,7 +117,17 @@
 - Migrate to new Stackdriver Kubernetes monitored resource. This could be a breaking change
   if you are using `gke_container` resources. For more info,
   https://cloud.google.com/monitoring/kubernetes-engine/migration#incompatible
-- Add OpenCensus Java OC-Agent Trace Exporter.
+- Add an util artifact `opencensus-contrib-dropwizard` to translate Dropwizard metrics to
+  OpenCensus.
+- Add Gauges (`DoubleGauge`, `LongGauge`, `DerivedDoubleGauge`, `DerivedLongGauge`) APIs.
+- Update `opencensus-contrib-log-correlation-log4j2` and
+  `opencensus-contrib-log-correlation-stackdriver` to match the
+  [OpenCensus log correlation spec](https://github.com/census-instrumentation/opencensus-specs/blob/master/trace/LogCorrelation.md)
+  and remove all `ExperimentalApi` annotations.
+- The histogram bucket boundaries (`BucketBoundaries`) and values (`Count` and `Sum`) are no longer
+  supported for negative values. The Record API drops the negative `value` and logs the warning.
+  This could be a breaking change if you are recording negative value for any `measure`.
+- Remove support for min/max in the stats Distribution to make it compatible with Metrics.
 
 ## 0.16.1 - 2018-09-18
 - Fix ClassCastException in Log4j log correlation
@@ -19,10 +140,10 @@
 - Add an API MeasureMap.putAttachment() for recording exemplars.
 - Add Exemplar class and an API to get Exemplar list to DistributionData.
 - Improve the styling of Rpcz, Statsz, Tracez, and Traceconfigz pages.
-- Add an artifact `opencensus-contrib-exemplar-util` that has helper utilities 
+- Add an artifact `opencensus-contrib-exemplar-util` that has helper utilities
   on recording exemplars.
 - Reduce the default limit on `Link`s per `Span` to 32 (was 128 before).
-- Add Spring support for `@Traced` annotation and java.sql.PreparedStatements 
+- Add Spring support for `@Traced` annotation and java.sql.PreparedStatements
   tracing.
 - Allow custom prefix for Stackdriver metrics in `StackdriverStatsConfiguration`.
 - Add support to handle the Tracestate in the SpanContext.
@@ -85,7 +206,7 @@
 - Add `Duration.toMillis()`.
 - Make monitored resource utils a separate artifact `opencensus-contrib-monitored-resource-util`,
   so that it can be reused across exporters.
-- Add `LastValue`, `LastValueDouble` and `LastValueLong`. Also support them in 
+- Add `LastValue`, `LastValueDouble` and `LastValueLong`. Also support them in
   stats exporters and zpages. Please note that there is an API breaking change
   in methods `Aggregation.match()` and `AggregationData.match()`.
 

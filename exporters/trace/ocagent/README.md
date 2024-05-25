@@ -13,27 +13,34 @@ For Maven add to your `pom.xml`:
   <dependency>
     <groupId>io.opencensus</groupId>
     <artifactId>opencensus-api</artifactId>
-    <version>0.17.0</version>
+    <version>0.28.3</version>
   </dependency>
   <dependency>
     <groupId>io.opencensus</groupId>
     <artifactId>opencensus-exporter-trace-ocagent</artifactId>
-    <version>0.17.0</version>
+    <version>0.28.3</version>
   </dependency>
   <dependency>
     <groupId>io.opencensus</groupId>
     <artifactId>opencensus-impl</artifactId>
-    <version>0.17.0</version>
+    <version>0.28.3</version>
+    <scope>runtime</scope>
+  </dependency>
+  <dependency>
+    <groupId>io.netty</groupId>
+    <artifactId>netty-tcnative-boringssl-static</artifactId>
+    <version>0.28.3.Final</version>
     <scope>runtime</scope>
   </dependency>
 </dependencies>
 ```
 
 For Gradle add to your dependencies:
-```gradle
-compile 'io.opencensus:opencensus-api:0.17.0'
-compile 'io.opencensus:opencensus-exporter-trace-ocagent:0.17.0'
-runtime 'io.opencensus:opencensus-impl:0.17.0'
+```groovy
+compile 'io.opencensus:opencensus-api:0.28.3'
+compile 'io.opencensus:opencensus-exporter-trace-ocagent:0.28.3'
+runtime 'io.opencensus:opencensus-impl:0.28.3'
+runtime 'io.netty:netty-tcnative-boringssl-static:2.0.20.Final'
 ```
 
 ### Register the exporter
@@ -46,3 +53,11 @@ public class MyMainClass {
   }
 }
 ```
+
+## FAQ
+
+### Why is `netty-tcnative-boringssl-static` needed? Which version should I use?
+
+It's because this artifact depends on `grpc-netty` which requires a runtime dependency on `netty-tcnative-boringssl-static`
+for it to work. For more details and a table of known working version combinations, see
+https://github.com/grpc/grpc-java/blob/master/SECURITY.md#netty.

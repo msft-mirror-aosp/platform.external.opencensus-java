@@ -19,12 +19,15 @@ package io.opencensus.implcore.metrics;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import io.opencensus.common.Clock;
-import io.opencensus.implcore.internal.Utils;
+import io.opencensus.metrics.DerivedDoubleCumulative;
 import io.opencensus.metrics.DerivedDoubleGauge;
+import io.opencensus.metrics.DerivedLongCumulative;
 import io.opencensus.metrics.DerivedLongGauge;
+import io.opencensus.metrics.DoubleCumulative;
 import io.opencensus.metrics.DoubleGauge;
-import io.opencensus.metrics.LabelKey;
+import io.opencensus.metrics.LongCumulative;
 import io.opencensus.metrics.LongGauge;
+import io.opencensus.metrics.MetricOptions;
 import io.opencensus.metrics.MetricRegistry;
 import io.opencensus.metrics.export.Metric;
 import io.opencensus.metrics.export.MetricProducer;
@@ -39,70 +42,112 @@ import java.util.Map;
 public final class MetricRegistryImpl extends MetricRegistry {
   private final RegisteredMeters registeredMeters;
   private final MetricProducer metricProducer;
+  private final Clock clock;
 
   MetricRegistryImpl(Clock clock) {
     registeredMeters = new RegisteredMeters();
     metricProducer = new MetricProducerForRegistry(registeredMeters, clock);
+    this.clock = clock;
   }
 
   @Override
-  public LongGauge addLongGauge(
-      String name, String description, String unit, List<LabelKey> labelKeys) {
-    Utils.checkListElementNotNull(
-        checkNotNull(labelKeys, "labelKeys"), "labelKey element should not be null.");
+  public LongGauge addLongGauge(String name, MetricOptions options) {
     LongGaugeImpl longGaugeMetric =
         new LongGaugeImpl(
             checkNotNull(name, "name"),
-            checkNotNull(description, "description"),
-            checkNotNull(unit, "unit"),
-            Collections.unmodifiableList(new ArrayList<LabelKey>(labelKeys)));
-    registeredMeters.registerMeter(name, longGaugeMetric);
-    return longGaugeMetric;
+            options.getDescription(),
+            options.getUnit(),
+            options.getLabelKeys(),
+            options.getConstantLabels());
+    return (LongGauge) registeredMeters.registerMeter(name, longGaugeMetric);
   }
 
   @Override
-  public DoubleGauge addDoubleGauge(
-      String name, String description, String unit, List<LabelKey> labelKeys) {
-    Utils.checkListElementNotNull(
-        checkNotNull(labelKeys, "labelKeys"), "labelKey element should not be null.");
+  public DoubleGauge addDoubleGauge(String name, MetricOptions options) {
     DoubleGaugeImpl doubleGaugeMetric =
         new DoubleGaugeImpl(
             checkNotNull(name, "name"),
-            checkNotNull(description, "description"),
-            checkNotNull(unit, "unit"),
-            Collections.unmodifiableList(new ArrayList<LabelKey>(labelKeys)));
-    registeredMeters.registerMeter(name, doubleGaugeMetric);
-    return doubleGaugeMetric;
+            options.getDescription(),
+            options.getUnit(),
+            options.getLabelKeys(),
+            options.getConstantLabels());
+    return (DoubleGauge) registeredMeters.registerMeter(name, doubleGaugeMetric);
   }
 
   @Override
-  public DerivedLongGauge addDerivedLongGauge(
-      String name, String description, String unit, List<LabelKey> labelKeys) {
-    Utils.checkListElementNotNull(
-        checkNotNull(labelKeys, "labelKeys"), "labelKey element should not be null.");
+  public DerivedLongGauge addDerivedLongGauge(String name, MetricOptions options) {
     DerivedLongGaugeImpl derivedLongGauge =
         new DerivedLongGaugeImpl(
             checkNotNull(name, "name"),
-            checkNotNull(description, "description"),
-            checkNotNull(unit, "unit"),
-            Collections.unmodifiableList(new ArrayList<LabelKey>(labelKeys)));
-    registeredMeters.registerMeter(name, derivedLongGauge);
-    return derivedLongGauge;
+            options.getDescription(),
+            options.getUnit(),
+            options.getLabelKeys(),
+            options.getConstantLabels());
+    return (DerivedLongGauge) registeredMeters.registerMeter(name, derivedLongGauge);
   }
 
   @Override
-  public DerivedDoubleGauge addDerivedDoubleGauge(
-      String name, String description, String unit, List<LabelKey> labelKeys) {
-    Utils.checkListElementNotNull(
-        checkNotNull(labelKeys, "labelKeys"), "labelKey element should not be null.");
+  public DerivedDoubleGauge addDerivedDoubleGauge(String name, MetricOptions options) {
     DerivedDoubleGaugeImpl derivedDoubleGauge =
         new DerivedDoubleGaugeImpl(
             checkNotNull(name, "name"),
-            checkNotNull(description, "description"),
-            checkNotNull(unit, "unit"),
-            Collections.unmodifiableList(new ArrayList<LabelKey>(labelKeys)));
-    registeredMeters.registerMeter(name, derivedDoubleGauge);
-    return derivedDoubleGauge;
+            options.getDescription(),
+            options.getUnit(),
+            options.getLabelKeys(),
+            options.getConstantLabels());
+    return (DerivedDoubleGauge) registeredMeters.registerMeter(name, derivedDoubleGauge);
+  }
+
+  @Override
+  public LongCumulative addLongCumulative(String name, MetricOptions options) {
+    LongCumulativeImpl longCumulativeMetric =
+        new LongCumulativeImpl(
+            checkNotNull(name, "name"),
+            options.getDescription(),
+            options.getUnit(),
+            options.getLabelKeys(),
+            options.getConstantLabels(),
+            clock.now());
+    return (LongCumulative) registeredMeters.registerMeter(name, longCumulativeMetric);
+  }
+
+  @Override
+  public DoubleCumulative addDoubleCumulative(String name, MetricOptions options) {
+    DoubleCumulativeImpl longCumulativeMetric =
+        new DoubleCumulativeImpl(
+            checkNotNull(name, "name"),
+            options.getDescription(),
+            options.getUnit(),
+            options.getLabelKeys(),
+            options.getConstantLabels(),
+            clock.now());
+    return (DoubleCumulative) registeredMeters.registerMeter(name, longCumulativeMetric);
+  }
+
+  @Override
+  public DerivedLongCumulative addDerivedLongCumulative(String name, MetricOptions options) {
+    DerivedLongCumulativeImpl derivedLongCumulative =
+        new DerivedLongCumulativeImpl(
+            checkNotNull(name, "name"),
+            options.getDescription(),
+            options.getUnit(),
+            options.getLabelKeys(),
+            options.getConstantLabels(),
+            clock.now());
+    return (DerivedLongCumulative) registeredMeters.registerMeter(name, derivedLongCumulative);
+  }
+
+  @Override
+  public DerivedDoubleCumulative addDerivedDoubleCumulative(String name, MetricOptions options) {
+    DerivedDoubleCumulativeImpl derivedDoubleCumulative =
+        new DerivedDoubleCumulativeImpl(
+            checkNotNull(name, "name"),
+            options.getDescription(),
+            options.getUnit(),
+            options.getLabelKeys(),
+            options.getConstantLabels(),
+            clock.now());
+    return (DerivedDoubleCumulative) registeredMeters.registerMeter(name, derivedDoubleCumulative);
   }
 
   private static final class RegisteredMeters {
@@ -112,17 +157,21 @@ public final class MetricRegistryImpl extends MetricRegistry {
       return registeredMeters;
     }
 
-    private synchronized void registerMeter(String meterName, Meter meter) {
+    private synchronized Meter registerMeter(String meterName, Meter meter) {
       Meter existingMeter = registeredMeters.get(meterName);
       if (existingMeter != null) {
-        // TODO(mayurkale): Allow users to register the same Meter multiple times without exception.
-        throw new IllegalArgumentException(
-            "A different metric with the same name already registered.");
+        if (!existingMeter.getMetricDescriptor().equals(meter.getMetricDescriptor())) {
+          throw new IllegalArgumentException(
+              "A different metric with the same name already registered.");
+        } else {
+          return existingMeter;
+        }
       }
 
       Map<String, Meter> registeredMetersCopy = new LinkedHashMap<String, Meter>(registeredMeters);
       registeredMetersCopy.put(meterName, meter);
       registeredMeters = Collections.unmodifiableMap(registeredMetersCopy);
+      return meter;
     }
   }
 
@@ -150,7 +199,7 @@ public final class MetricRegistryImpl extends MetricRegistry {
           metrics.add(metric);
         }
       }
-      return metrics;
+      return Collections.unmodifiableCollection(metrics);
     }
   }
 

@@ -57,7 +57,7 @@ public class HelloWorldClient {
         ManagedChannelBuilder.forAddress(host, port)
             // Channels are secure by default (via SSL/TLS). For the example we disable TLS to avoid
             // needing certificates.
-            .usePlaintext(true)
+            .usePlaintext()
             .build());
   }
 
@@ -108,7 +108,8 @@ public class HelloWorldClient {
     final String cloudProjectId = getStringOrDefaultFromArgs(args, 3, null);
     final int zPagePort = getPortOrDefaultFromArgs(args, 4, 3001);
 
-    // Registers all RPC views.
+    // Registers all RPC views. For demonstration all views are registered. You may want to
+    // start with registering basic views and register other views as needed for your application.
     RpcViews.registerAllViews();
 
     // Starts a HTTP server and registers all Zpages to it.
@@ -125,7 +126,7 @@ public class HelloWorldClient {
       StackdriverStatsExporter.createAndRegister(
           StackdriverStatsConfiguration.builder()
               .setProjectId(cloudProjectId)
-              .setExportInterval(Duration.create(15, 0))
+              .setExportInterval(Duration.create(60, 0))
               .build());
     }
 

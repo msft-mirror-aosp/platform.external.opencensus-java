@@ -18,6 +18,8 @@ package io.opencensus.stats;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import io.opencensus.metrics.data.AttachmentValue;
+import io.opencensus.metrics.data.AttachmentValue.AttachmentValueString;
 import io.opencensus.stats.Measure.MeasureDouble;
 import io.opencensus.tags.Tag;
 import io.opencensus.tags.TagContext;
@@ -40,6 +42,7 @@ public final class NoopStatsTest {
   private static final Tag TAG = Tag.create(TagKey.create("key"), TagValue.create("value"));
   private static final MeasureDouble MEASURE =
       Measure.MeasureDouble.create("my measure", "description", "s");
+  private static final AttachmentValue ATTACHMENT_VALUE = AttachmentValueString.create("value");
 
   private final TagContext tagContext =
       new TagContext() {
@@ -55,7 +58,7 @@ public final class NoopStatsTest {
   @Test
   public void noopStatsComponent() {
     assertThat(NoopStats.newNoopStatsComponent().getStatsRecorder())
-        .isSameAs(NoopStats.getNoopStatsRecorder());
+        .isSameInstanceAs(NoopStats.getNoopStatsRecorder());
     assertThat(NoopStats.newNoopStatsComponent().getViewManager())
         .isInstanceOf(NoopStats.newNoopViewManager().getClass());
   }
@@ -98,7 +101,7 @@ public final class NoopStatsTest {
     MeasureMap measureMap = NoopStats.getNoopStatsRecorder().newMeasureMap();
     thrown.expect(NullPointerException.class);
     thrown.expectMessage("key");
-    measureMap.putAttachment(null, "value");
+    measureMap.putAttachment(null, ATTACHMENT_VALUE);
   }
 
   @Test
@@ -106,7 +109,12 @@ public final class NoopStatsTest {
     MeasureMap measureMap = NoopStats.getNoopStatsRecorder().newMeasureMap();
     thrown.expect(NullPointerException.class);
     thrown.expectMessage("value");
-    measureMap.putAttachment("key", null);
+    measureMap.putAttachment("key", (AttachmentValue) null);
+  }
+
+  @Test
+  public void noopStatsRecorder_PutNegativeValue() {
+    NoopStats.getNoopStatsRecorder().newMeasureMap().put(MEASURE, -5).record(tagContext);
   }
 
   // The NoopStatsRecorder should do nothing, so this test just checks that record doesn't throw an

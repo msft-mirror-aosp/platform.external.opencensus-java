@@ -25,7 +25,7 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.mockito.Mockito;
-import org.mockito.runners.MockitoJUnitRunner;
+import org.mockito.junit.MockitoJUnitRunner;
 
 /** Unit tests for {@link TraceTrampoline}. */
 @RunWith(MockitoJUnitRunner.class)
@@ -55,6 +55,6 @@ public class TraceTrampolineTest {
     Closeable closeable = TraceTrampoline.startScopedSpan("test");
 
     Mockito.verify(mockTraceStrategy).startScopedSpan("test");
-    assertThat(closeable).isSameAs(mockCloseable);
+    assertThat(closeable).isSameInstanceAs(mockCloseable);
   }
 }

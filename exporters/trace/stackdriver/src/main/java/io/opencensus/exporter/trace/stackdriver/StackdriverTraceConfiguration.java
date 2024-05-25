@@ -18,7 +18,16 @@ package io.opencensus.exporter.trace.stackdriver;
 
 import com.google.auth.Credentials;
 import com.google.auto.value.AutoValue;
+import com.google.cloud.ServiceOptions;
 import com.google.cloud.trace.v2.stub.TraceServiceStub;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import io.opencensus.common.Duration;
+import io.opencensus.trace.AttributeValue;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.Immutable;
 
@@ -30,6 +39,11 @@ import javax.annotation.concurrent.Immutable;
 @AutoValue
 @Immutable
 public abstract class StackdriverTraceConfiguration {
+
+  private static final String DEFAULT_PROJECT_ID =
+      Strings.nullToEmpty(ServiceOptions.getDefaultProjectId());
+
+  @VisibleForTesting static final Duration DEFAULT_DEADLINE = Duration.create(10, 0);
 
   StackdriverTraceConfiguration() {}
 
@@ -48,7 +62,6 @@ public abstract class StackdriverTraceConfiguration {
    * @return the cloud project id.
    * @since 0.12
    */
-  @Nullable
   public abstract String getProjectId();
 
   /**
@@ -61,13 +74,34 @@ public abstract class StackdriverTraceConfiguration {
   public abstract TraceServiceStub getTraceServiceStub();
 
   /**
+   * Returns a map of attributes that is added to all the exported spans.
+   *
+   * @return the map of attributes that is added to all the exported spans.
+   * @since 0.19
+   */
+  public abstract Map<String, AttributeValue> getFixedAttributes();
+
+  /**
+   * Returns the deadline for exporting to Stackdriver Trace backend.
+   *
+   * <p>Default value is 10 seconds.
+   *
+   * @return the export deadline.
+   * @since 0.22
+   */
+  public abstract Duration getDeadline();
+
+  /**
    * Returns a new {@link Builder}.
    *
    * @return a {@code Builder}.
    * @since 0.12
    */
   public static Builder builder() {
-    return new AutoValue_StackdriverTraceConfiguration.Builder();
+    return new AutoValue_StackdriverTraceConfiguration.Builder()
+        .setProjectId(DEFAULT_PROJECT_ID)
+        .setFixedAttributes(Collections.<String, AttributeValue>emptyMap())
+        .setDeadline(DEFAULT_DEADLINE);
   }
 
   /**
@@ -77,6 +111,8 @@ public abstract class StackdriverTraceConfiguration {
    */
   @AutoValue.Builder
   public abstract static class Builder {
+
+    @VisibleForTesting static final Duration ZERO = Duration.fromMillis(0);
 
     Builder() {}
 
@@ -108,11 +144,54 @@ public abstract class StackdriverTraceConfiguration {
     public abstract Builder setTraceServiceStub(TraceServiceStub traceServiceStub);
 
     /**
+     * Sets the map of attributes that is added to all the exported spans.
+     *
+     * @param fixedAttributes the map of attributes that is added to all the exported spans.
+     * @return this.
+     * @since 0.16
+     */
+    public abstract Builder setFixedAttributes(Map<String, AttributeValue> fixedAttributes);
+
+    /**
+     * Sets the deadline for exporting to Stackdriver Trace backend.
+     *
+     * <p>If both {@code TraceServiceStub} and {@code Deadline} are set, {@code TraceServiceStub}
+     * takes precedence and {@code Deadline} will not be respected.
+     *
+     * @param deadline the export deadline.
+     * @return this
+     * @since 0.22
+     */
+    public abstract Builder setDeadline(Duration deadline);
+
+    abstract String getProjectId();
+
+    abstract Map<String, AttributeValue> getFixedAttributes();
+
+    abstract Duration getDeadline();
+
+    abstract StackdriverTraceConfiguration autoBuild();
+
+    /**
      * Builds a {@link StackdriverTraceConfiguration}.
      *
      * @return a {@code StackdriverTraceConfiguration}.
      * @since 0.12
      */
-    public abstract StackdriverTraceConfiguration build();
+    public StackdriverTraceConfiguration build() {
+      // Make a defensive copy of fixed attributes.
+      setFixedAttributes(
+          Collections.unmodifiableMap(
+              new LinkedHashMap<String, AttributeValue>(getFixedAttributes())));
+      Preconditions.checkArgument(
+          !Strings.isNullOrEmpty(getProjectId()),
+          "Cannot find a project ID from either configurations or application default.");
+      for (Map.Entry<String, AttributeValue> fixedAttribute : getFixedAttributes().entrySet()) {
+        Preconditions.checkNotNull(fixedAttribute.getKey(), "attribute key");
+        Preconditions.checkNotNull(fixedAttribute.getValue(), "attribute value");
+      }
+      Preconditions.checkArgument(getDeadline().compareTo(ZERO) > 0, "Deadline must be positive.");
+      return autoBuild();
+    }
   }
 }

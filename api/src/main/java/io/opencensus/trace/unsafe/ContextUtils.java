@@ -17,6 +17,8 @@
 package io.opencensus.trace.unsafe;
 
 import io.grpc.Context;
+import io.opencensus.internal.Utils;
+import io.opencensus.trace.BlankSpan;
 import io.opencensus.trace.Span;
 
 /*>>>
@@ -24,22 +26,45 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 */
 
 /**
- * Util methods/functionality to interact with the {@link io.grpc.Context}.
+ * Utilities for grabbing manipulating current context and grabbing current span.
  *
- * <p>Users must interact with the current Context via the public APIs in {@link
- * io.opencensus.trace.Tracer} and avoid usages of the {@link #CONTEXT_SPAN_KEY} directly.
- *
+ * @deprecated Please use {@link io.opencensus.trace.unsafe.ContextHandleUtils} Util
+ *     methods/functionality to interact with the {@link io.grpc.Context}. Users must interact with
+ *     the current Context via the public APIs in {@link io.opencensus.trace.Tracer} and avoid
+ *     usages of the {@link #CONTEXT_SPAN_KEY} directly.
  * @since 0.5
  */
+@Deprecated()
 public final class ContextUtils {
   // No instance of this class.
   private ContextUtils() {}
 
+  /** The {@link io.grpc.Context.Key} used to interact with {@link io.grpc.Context}. */
+  private static final Context.Key</*@Nullable*/ Span> CONTEXT_SPAN_KEY =
+      Context.<Span>key("opencensus-trace-span-key");
+
   /**
-   * The {@link io.grpc.Context.Key} used to interact with {@link io.grpc.Context}.
+   * Creates a new {@code Context} with the given value set.
    *
-   * @since 0.5
+   * @param context the parent {@code Context}.
+   * @param span the value to be set.
+   * @return a new context with the given value set.
+   * @since 0.21
    */
-  public static final Context.Key</*@Nullable*/ Span> CONTEXT_SPAN_KEY =
-      Context.key("opencensus-trace-span-key");
+  public static Context withValue(Context context, @javax.annotation.Nullable Span span) {
+    return Utils.checkNotNull(context, "context").withValue(CONTEXT_SPAN_KEY, span);
+  }
+
+  /**
+   * Returns the value from the specified {@code Context}.
+   *
+   * @param context the specified {@code Context}.
+   * @return the value from the specified {@code Context}.
+   * @since 0.21
+   */
+  public static Span getValue(Context context) {
+    @javax.annotation.Nullable
+    Span span = CONTEXT_SPAN_KEY.get(Utils.checkNotNull(context, "context"));
+    return span == null ? BlankSpan.INSTANCE : span;
+  }
 }

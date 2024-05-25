@@ -28,6 +28,9 @@ import io.opencensus.implcore.stats.MutableAggregation.MutableLastValueLong;
 import io.opencensus.implcore.stats.MutableAggregation.MutableMean;
 import io.opencensus.implcore.stats.MutableAggregation.MutableSumDouble;
 import io.opencensus.implcore.stats.MutableAggregation.MutableSumLong;
+import io.opencensus.metrics.data.AttachmentValue;
+import io.opencensus.metrics.data.AttachmentValue.AttachmentValueString;
+import io.opencensus.metrics.data.Exemplar;
 import io.opencensus.metrics.export.Distribution;
 import io.opencensus.metrics.export.Distribution.Bucket;
 import io.opencensus.metrics.export.Distribution.BucketOptions;
@@ -36,7 +39,6 @@ import io.opencensus.metrics.export.Value;
 import io.opencensus.stats.AggregationData;
 import io.opencensus.stats.AggregationData.CountData;
 import io.opencensus.stats.AggregationData.DistributionData;
-import io.opencensus.stats.AggregationData.DistributionData.Exemplar;
 import io.opencensus.stats.AggregationData.LastValueDataDouble;
 import io.opencensus.stats.AggregationData.LastValueDataLong;
 import io.opencensus.stats.AggregationData.MeanData;
@@ -65,6 +67,11 @@ public class MutableAggregationTest {
   private static final BucketBoundaries BUCKET_BOUNDARIES_EMPTY =
       BucketBoundaries.create(Collections.<Double>emptyList());
   private static final Timestamp TIMESTAMP = Timestamp.create(60, 0);
+  private static final AttachmentValue ATTACHMENT_VALUE_1 = AttachmentValueString.create("v1");
+  private static final AttachmentValue ATTACHMENT_VALUE_2 = AttachmentValueString.create("v2");
+  private static final AttachmentValue ATTACHMENT_VALUE_3 = AttachmentValueString.create("v3");
+  private static final AttachmentValue ATTACHMENT_VALUE_4 = AttachmentValueString.create("v4");
+  private static final AttachmentValue ATTACHMENT_VALUE_5 = AttachmentValueString.create("v5");
 
   @Test
   public void testCreateEmpty() {
@@ -79,8 +86,6 @@ public class MutableAggregationTest {
     MutableDistribution mutableDistribution = MutableDistribution.create(bucketBoundaries);
     assertThat(mutableDistribution.getMean()).isWithin(TOLERANCE).of(0);
     assertThat(mutableDistribution.getCount()).isEqualTo(0);
-    assertThat(mutableDistribution.getMin()).isPositiveInfinity();
-    assertThat(mutableDistribution.getMax()).isNegativeInfinity();
     assertThat(mutableDistribution.getSumOfSquaredDeviations()).isWithin(TOLERANCE).of(0);
     assertThat(mutableDistribution.getBucketCounts()).isEqualTo(new long[4]);
     assertThat(mutableDistribution.getExemplars()).isEqualTo(new Exemplar[4]);
@@ -99,8 +104,8 @@ public class MutableAggregationTest {
 
   @Test
   public void testNoBoundaries() {
-    List<Double> buckets = Arrays.asList();
-    MutableDistribution noBoundaries = MutableDistribution.create(BucketBoundaries.create(buckets));
+    MutableDistribution noBoundaries =
+        MutableDistribution.create(BucketBoundaries.create(Collections.<Double>emptyList()));
     assertThat(noBoundaries.getBucketCounts().length).isEqualTo(1);
     assertThat(noBoundaries.getBucketCounts()[0]).isEqualTo(0);
   }
@@ -121,7 +126,7 @@ public class MutableAggregationTest {
 
     for (double value : values) {
       for (MutableAggregation aggregation : aggregations) {
-        aggregation.add(value, Collections.<String, String>emptyMap(), TIMESTAMP);
+        aggregation.add(value, Collections.<String, AttachmentValue>emptyMap(), TIMESTAMP);
       }
     }
 
@@ -139,8 +144,7 @@ public class MutableAggregationTest {
         TOLERANCE);
     assertAggregationDataEquals(
         aggregations.get(4).toAggregationData(),
-        AggregationData.DistributionData.create(
-            4.0, 5, -5.0, 20.0, 372, Arrays.asList(0L, 2L, 2L, 1L)),
+        AggregationData.DistributionData.create(4.0, 5, 372, Arrays.asList(4L, 1L)),
         TOLERANCE);
     assertAggregationDataEquals(
         aggregations.get(5).toAggregationData(),
@@ -158,13 +162,13 @@ public class MutableAggregationTest {
     MutableDistribution mutableDistributionNoHistogram =
         MutableDistribution.create(BUCKET_BOUNDARIES_EMPTY);
     List<Double> values = Arrays.asList(-1.0, 1.0, -5.0, 20.0, 5.0);
-    List<Map<String, String>> attachmentsList =
-        ImmutableList.<Map<String, String>>of(
-            Collections.<String, String>singletonMap("k1", "v1"),
-            Collections.<String, String>singletonMap("k2", "v2"),
-            Collections.<String, String>singletonMap("k3", "v3"),
-            Collections.<String, String>singletonMap("k4", "v4"),
-            Collections.<String, String>singletonMap("k5", "v5"));
+    List<Map<String, AttachmentValue>> attachmentsList =
+        ImmutableList.<Map<String, AttachmentValue>>of(
+            Collections.<String, AttachmentValue>singletonMap("k1", ATTACHMENT_VALUE_1),
+            Collections.<String, AttachmentValue>singletonMap("k2", ATTACHMENT_VALUE_2),
+            Collections.<String, AttachmentValue>singletonMap("k3", ATTACHMENT_VALUE_3),
+            Collections.<String, AttachmentValue>singletonMap("k4", ATTACHMENT_VALUE_4),
+            Collections.<String, AttachmentValue>singletonMap("k5", ATTACHMENT_VALUE_5));
     List<Timestamp> timestamps =
         Arrays.asList(
             Timestamp.fromMillis(500),
@@ -181,8 +185,6 @@ public class MutableAggregationTest {
     // bucket, only the last one will be kept.
     List<Exemplar> expected =
         Arrays.<Exemplar>asList(
-            null,
-            Exemplar.create(values.get(2), timestamps.get(2), attachmentsList.get(2)),
             Exemplar.create(values.get(4), timestamps.get(4), attachmentsList.get(4)),
             Exemplar.create(values.get(3), timestamps.get(3), attachmentsList.get(3)));
     assertThat(mutableDistribution.getExemplars())
@@ -210,12 +212,12 @@ public class MutableAggregationTest {
 
     for (double val : Arrays.asList(-1.0, -5.0)) {
       for (MutableAggregation aggregation : aggregations1) {
-        aggregation.add(val, Collections.<String, String>emptyMap(), TIMESTAMP);
+        aggregation.add(val, Collections.<String, AttachmentValue>emptyMap(), TIMESTAMP);
       }
     }
     for (double val : Arrays.asList(10.0, 50.0)) {
       for (MutableAggregation aggregation : aggregations2) {
-        aggregation.add(val, Collections.<String, String>emptyMap(), TIMESTAMP);
+        aggregation.add(val, Collections.<String, AttachmentValue>emptyMap(), TIMESTAMP);
       }
     }
 
@@ -246,25 +248,24 @@ public class MutableAggregationTest {
     MutableDistribution distribution3 = MutableDistribution.create(BUCKET_BOUNDARIES);
 
     for (double val : Arrays.asList(5.0, -5.0)) {
-      distribution1.add(val, Collections.<String, String>emptyMap(), TIMESTAMP);
+      distribution1.add(val, Collections.<String, AttachmentValue>emptyMap(), TIMESTAMP);
     }
     for (double val : Arrays.asList(10.0, 20.0)) {
-      distribution2.add(val, Collections.<String, String>emptyMap(), TIMESTAMP);
+      distribution2.add(val, Collections.<String, AttachmentValue>emptyMap(), TIMESTAMP);
     }
     for (double val : Arrays.asList(-10.0, 15.0, -15.0, -20.0)) {
-      distribution3.add(val, Collections.<String, String>emptyMap(), TIMESTAMP);
+      distribution3.add(val, Collections.<String, AttachmentValue>emptyMap(), TIMESTAMP);
     }
 
     MutableDistribution combined = MutableDistribution.create(BUCKET_BOUNDARIES);
     combined.combine(distribution1, 1.0); // distribution1 will be combined
     combined.combine(distribution2, 0.6); // distribution2 will be ignored
-    verifyMutableDistribution(combined, 0, 2, -5, 5, 50.0, new long[] {0, 1, 1, 0}, TOLERANCE);
+    verifyMutableDistribution(combined, 0, 2, 50.0, new long[] {2, 0});
 
     combined.combine(distribution2, 1.0); // distribution2 will be combined
-    verifyMutableDistribution(combined, 7.5, 4, -5, 20, 325.0, new long[] {0, 1, 1, 2}, TOLERANCE);
-
+    verifyMutableDistribution(combined, 7.5, 4, 325.0, new long[] {2, 2});
     combined.combine(distribution3, 1.0); // distribution3 will be combined
-    verifyMutableDistribution(combined, 0, 8, -20, 20, 1500.0, new long[] {2, 2, 1, 3}, TOLERANCE);
+    verifyMutableDistribution(combined, 0, 8, 1500.0, new long[] {5, 3});
   }
 
   @Test
@@ -274,14 +275,7 @@ public class MutableAggregationTest {
     assertThat(MutableCount.create().toAggregationData()).isEqualTo(CountData.create(0));
     assertThat(MutableMean.create().toAggregationData()).isEqualTo(MeanData.create(0, 0));
     assertThat(MutableDistribution.create(BUCKET_BOUNDARIES).toAggregationData())
-        .isEqualTo(
-            DistributionData.create(
-                0,
-                0,
-                Double.POSITIVE_INFINITY,
-                Double.NEGATIVE_INFINITY,
-                0,
-                Arrays.asList(0L, 0L, 0L, 0L)));
+        .isEqualTo(DistributionData.create(0, 0, 0, Arrays.asList(0L, 0L)));
     assertThat(MutableLastValueDouble.create().toAggregationData())
         .isEqualTo(LastValueDataDouble.create(Double.NaN));
     assertThat(MutableLastValueLong.create().toAggregationData())
@@ -299,8 +293,6 @@ public class MutableAggregationTest {
     assertThat(MutableMean.create().toPoint(TIMESTAMP))
         .isEqualTo(Point.create(Value.doubleValue(0), TIMESTAMP));
 
-    thrown.expect(IllegalArgumentException.class);
-    thrown.expectMessage("bucket boundary should be > 0");
     assertThat(MutableDistribution.create(BUCKET_BOUNDARIES).toPoint(TIMESTAMP))
         .isEqualTo(
             Point.create(
@@ -310,11 +302,7 @@ public class MutableAggregationTest {
                         0,
                         0,
                         BucketOptions.explicitOptions(BUCKET_BOUNDARIES.getBoundaries()),
-                        Arrays.asList(
-                            Bucket.create(0),
-                            Bucket.create(0),
-                            Bucket.create(0),
-                            Bucket.create(0)))),
+                        Arrays.asList(Bucket.create(0), Bucket.create(0)))),
                 TIMESTAMP));
   }
 
@@ -322,17 +310,12 @@ public class MutableAggregationTest {
       MutableDistribution mutableDistribution,
       double mean,
       long count,
-      double min,
-      double max,
       double sumOfSquaredDeviations,
-      long[] bucketCounts,
-      double tolerance) {
-    assertThat(mutableDistribution.getMean()).isWithin(tolerance).of(mean);
+      long[] bucketCounts) {
+    assertThat(mutableDistribution.getMean()).isWithin(MutableAggregationTest.TOLERANCE).of(mean);
     assertThat(mutableDistribution.getCount()).isEqualTo(count);
-    assertThat(mutableDistribution.getMin()).isWithin(tolerance).of(min);
-    assertThat(mutableDistribution.getMax()).isWithin(tolerance).of(max);
     assertThat(mutableDistribution.getSumOfSquaredDeviations())
-        .isWithin(tolerance)
+        .isWithin(MutableAggregationTest.TOLERANCE)
         .of(sumOfSquaredDeviations);
     assertThat(mutableDistribution.getBucketCounts()).isEqualTo(bucketCounts);
   }

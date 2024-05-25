@@ -19,7 +19,6 @@ package io.opencensus.implcore.stats;
 import static com.google.common.truth.Truth.assertThat;
 
 import io.opencensus.common.Duration;
-import io.opencensus.common.Timestamp;
 import io.opencensus.metrics.LabelKey;
 import io.opencensus.metrics.LabelValue;
 import io.opencensus.metrics.export.MetricDescriptor;
@@ -82,7 +81,9 @@ public class MetricUtilsTest {
           MEAN,
           Collections.singletonList(KEY),
           INTERVAL);
-  private static final Timestamp TIMESTAMP = Timestamp.fromMillis(1000);
+  private static final View VIEW_3 =
+      View.create(
+          VIEW_NAME, VIEW_DESCRIPTION, MEASURE_DOUBLE, COUNT, Collections.singletonList(KEY));
 
   @Test
   public void viewToMetricDescriptor() {
@@ -91,6 +92,17 @@ public class MetricUtilsTest {
     assertThat(metricDescriptor.getName()).isEqualTo(VIEW_NAME.asString());
     assertThat(metricDescriptor.getUnit()).isEqualTo(MEASURE_UNIT);
     assertThat(metricDescriptor.getType()).isEqualTo(Type.GAUGE_DOUBLE);
+    assertThat(metricDescriptor.getDescription()).isEqualTo(VIEW_DESCRIPTION);
+    assertThat(metricDescriptor.getLabelKeys()).containsExactly(LabelKey.create(KEY.getName(), ""));
+  }
+
+  @Test
+  public void viewToMetricDescriptor_Count() {
+    MetricDescriptor metricDescriptor = MetricUtils.viewToMetricDescriptor(VIEW_3);
+    assertThat(metricDescriptor).isNotNull();
+    assertThat(metricDescriptor.getName()).isEqualTo(VIEW_NAME.asString());
+    assertThat(metricDescriptor.getUnit()).isEqualTo(MetricUtils.COUNT_UNIT);
+    assertThat(metricDescriptor.getType()).isEqualTo(Type.CUMULATIVE_INT64);
     assertThat(metricDescriptor.getDescription()).isEqualTo(VIEW_DESCRIPTION);
     assertThat(metricDescriptor.getLabelKeys()).containsExactly(LabelKey.create(KEY.getName(), ""));
   }

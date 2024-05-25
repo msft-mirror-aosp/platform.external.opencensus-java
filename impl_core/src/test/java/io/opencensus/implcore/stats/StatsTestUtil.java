@@ -24,6 +24,7 @@ import com.google.common.collect.Lists;
 import io.opencensus.common.Function;
 import io.opencensus.common.Functions;
 import io.opencensus.common.Timestamp;
+import io.opencensus.metrics.data.AttachmentValue;
 import io.opencensus.stats.Aggregation;
 import io.opencensus.stats.AggregationData;
 import io.opencensus.stats.AggregationData.CountData;
@@ -70,7 +71,7 @@ final class StatsTestUtil {
     MutableAggregation mutableAggregation =
         RecordUtils.createMutableAggregation(aggregation, measure);
     for (double value : values) {
-      mutableAggregation.add(value, Collections.<String, String>emptyMap(), EMPTY);
+      mutableAggregation.add(value, Collections.<String, AttachmentValue>emptyMap(), EMPTY);
     }
     return mutableAggregation.toAggregationData();
   }
@@ -192,16 +193,7 @@ final class StatsTestUtil {
         .isWithin(tolerance)
         .of(expected.getSumOfSquaredDeviations());
 
-    if (expected.getMax() == Double.NEGATIVE_INFINITY
-        && expected.getMin() == Double.POSITIVE_INFINITY) {
-      assertThat(actual.getMax()).isNegativeInfinity();
-      assertThat(actual.getMin()).isPositiveInfinity();
-    } else {
-      assertThat(actual.getMax()).isWithin(tolerance).of(expected.getMax());
-      assertThat(actual.getMin()).isWithin(tolerance).of(expected.getMin());
-    }
-
-    assertThat(removeTrailingZeros((actual).getBucketCounts()))
+    assertThat(removeTrailingZeros(actual.getBucketCounts()))
         .isEqualTo(removeTrailingZeros(expected.getBucketCounts()));
   }
 

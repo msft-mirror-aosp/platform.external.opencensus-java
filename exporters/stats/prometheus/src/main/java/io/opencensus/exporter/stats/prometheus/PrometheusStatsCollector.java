@@ -17,42 +17,42 @@
 package io.opencensus.exporter.stats.prometheus;
 
 import static io.opencensus.exporter.stats.prometheus.PrometheusExportUtils.containsDisallowedLeLabelForHistogram;
+import static io.opencensus.exporter.stats.prometheus.PrometheusExportUtils.containsDisallowedQuantileLabelForSummary;
 import static io.opencensus.exporter.stats.prometheus.PrometheusExportUtils.convertToLabelNames;
 import static io.opencensus.exporter.stats.prometheus.PrometheusExportUtils.getType;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import io.opencensus.common.Scope;
-import io.opencensus.stats.Stats;
-import io.opencensus.stats.View;
-import io.opencensus.stats.ViewData;
-import io.opencensus.stats.ViewManager;
-import io.opencensus.trace.Sampler;
-import io.opencensus.trace.Span;
+import io.opencensus.exporter.metrics.util.MetricExporter;
+import io.opencensus.exporter.metrics.util.MetricReader;
+import io.opencensus.metrics.Metrics;
+import io.opencensus.metrics.export.Metric;
+import io.opencensus.metrics.export.MetricDescriptor;
+import io.opencensus.metrics.export.MetricProducerManager;
 import io.opencensus.trace.Status;
 import io.opencensus.trace.Tracer;
 import io.opencensus.trace.Tracing;
-import io.opencensus.trace.samplers.Samplers;
 import io.prometheus.client.Collector;
 import io.prometheus.client.CollectorRegistry;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * OpenCensus Stats {@link Collector} for Prometheus.
+ * OpenCensus Metrics {@link Collector} for Prometheus.
  *
  * @since 0.12
  */
-@SuppressWarnings("deprecation")
 public final class PrometheusStatsCollector extends Collector implements Collector.Describable {
 
   private static final Logger logger = Logger.getLogger(PrometheusStatsCollector.class.getName());
   private static final Tracer tracer = Tracing.getTracer();
-  private static final Sampler probabilitySampler = Samplers.probabilitySampler(0.0001);
-
-  private final ViewManager viewManager;
+  private static final String DESCRIBE_METRICS_FOR_PROMETHEUS = "DescribeMetricsToPrometheus";
+  private static final String EXPORT_METRICS_TO_PROMETHEUS = "ExportMetricsToPrometheus";
+  private final MetricReader collectMetricReader;
+  private final MetricReader describeMetricReader;
+  private final String namespace;
 
   /**
    * Creates a {@link PrometheusStatsCollector} and registers it to Prometheus {@link
@@ -69,7 +69,8 @@ public final class PrometheusStatsCollector extends Collector implements Collect
    * @since 0.12
    */
   public static void createAndRegister() {
-    new PrometheusStatsCollector(Stats.getViewManager()).register();
+    new PrometheusStatsCollector(Metrics.getExportComponent().getMetricProducerManager(), "")
+        .register();
   }
 
   /**
@@ -88,87 +89,107 @@ public final class PrometheusStatsCollector extends Collector implements Collect
     if (registry == null) {
       registry = CollectorRegistry.defaultRegistry;
     }
-    new PrometheusStatsCollector(Stats.getViewManager()).register(registry);
+    new PrometheusStatsCollector(
+            Metrics.getExportComponent().getMetricProducerManager(), configuration.getNamespace())
+        .register(registry);
+  }
+
+  private static final class ExportMetricExporter extends MetricExporter {
+    private final ArrayList<MetricFamilySamples> samples = new ArrayList<>();
+    private final String namespace;
+
+    private ExportMetricExporter(String namespace) {
+      this.namespace = namespace;
+    }
+
+    @Override
+    public void export(Collection<Metric> metrics) {
+      samples.ensureCapacity(metrics.size());
+      for (Metric metric : metrics) {
+        MetricDescriptor metricDescriptor = metric.getMetricDescriptor();
+        if (containsDisallowedLeLabelForHistogram(
+                convertToLabelNames(metricDescriptor.getLabelKeys()),
+                getType(metricDescriptor.getType()))
+            || containsDisallowedQuantileLabelForSummary(
+                convertToLabelNames(metricDescriptor.getLabelKeys()),
+                getType(metricDescriptor.getType()))) {
+          // silently skip Distribution metricdescriptor with "le" label key and Summary
+          // metricdescriptor with "quantile" label key
+          continue;
+        }
+        try {
+          samples.add(PrometheusExportUtils.createMetricFamilySamples(metric, namespace));
+        } catch (Throwable e) {
+          logger.log(Level.WARNING, "Exception thrown when collecting metric samples.", e);
+          tracer
+              .getCurrentSpan()
+              .setStatus(
+                  Status.UNKNOWN.withDescription(
+                      "Exception thrown when collecting Prometheus Metric Samples: "
+                          + exceptionMessage(e)));
+        }
+      }
+    }
   }
 
   @Override
   public List<MetricFamilySamples> collect() {
-    List<MetricFamilySamples> samples = Lists.newArrayList();
-    Span span =
-        tracer
-            .spanBuilder("ExportStatsToPrometheus")
-            .setSampler(probabilitySampler)
-            .setRecordEvents(true)
-            .startSpan();
-    span.addAnnotation("Collect Prometheus Metric Samples.");
-    Scope scope = tracer.withSpan(span);
-    try {
-      for (View view : viewManager.getAllExportedViews()) {
-        if (containsDisallowedLeLabelForHistogram(
-            convertToLabelNames(view.getColumns()),
-            getType(view.getAggregation(), view.getWindow()))) {
-          continue; // silently skip Distribution views with "le" tag key
-        }
+    ExportMetricExporter exportMetricExporter = new ExportMetricExporter(namespace);
+    collectMetricReader.readAndExport(exportMetricExporter);
+    return exportMetricExporter.samples;
+  }
+
+  private static final class DescribeMetricExporter extends MetricExporter {
+    private final ArrayList<MetricFamilySamples> samples = new ArrayList<>();
+    private final String namespace;
+
+    private DescribeMetricExporter(String namespace) {
+      this.namespace = namespace;
+    }
+
+    @Override
+    public void export(Collection<Metric> metrics) {
+      samples.ensureCapacity(metrics.size());
+      for (Metric metric : metrics) {
         try {
-          ViewData viewData = viewManager.getView(view.getName());
-          if (viewData == null) {
-            continue;
-          } else {
-            samples.add(PrometheusExportUtils.createMetricFamilySamples(viewData));
-          }
+          samples.add(
+              PrometheusExportUtils.createDescribableMetricFamilySamples(
+                  metric.getMetricDescriptor(), namespace));
         } catch (Throwable e) {
-          logger.log(Level.WARNING, "Exception thrown when collecting metric samples.", e);
-          span.setStatus(
-              Status.UNKNOWN.withDescription(
-                  "Exception thrown when collecting Prometheus Metric Samples: "
-                      + exceptionMessage(e)));
+          logger.log(Level.WARNING, "Exception thrown when describing metrics.", e);
+          tracer
+              .getCurrentSpan()
+              .setStatus(
+                  Status.UNKNOWN.withDescription(
+                      "Exception thrown when describing Prometheus Metrics: "
+                          + exceptionMessage(e)));
         }
       }
-      span.addAnnotation("Finish collecting Prometheus Metric Samples.");
-    } finally {
-      scope.close();
-      span.end();
     }
-    return samples;
   }
 
   @Override
   public List<MetricFamilySamples> describe() {
-    List<MetricFamilySamples> samples = Lists.newArrayList();
-    Span span =
-        tracer
-            .spanBuilder("DescribeMetricsForPrometheus")
-            .setSampler(probabilitySampler)
-            .setRecordEvents(true)
-            .startSpan();
-    span.addAnnotation("Describe Prometheus Metrics.");
-    Scope scope = tracer.withSpan(span);
-    try {
-      for (View view : viewManager.getAllExportedViews()) {
-        try {
-          samples.add(PrometheusExportUtils.createDescribableMetricFamilySamples(view));
-        } catch (Throwable e) {
-          logger.log(Level.WARNING, "Exception thrown when describing metrics.", e);
-          span.setStatus(
-              Status.UNKNOWN.withDescription(
-                  "Exception thrown when describing Prometheus Metrics: " + exceptionMessage(e)));
-        }
-      }
-      span.addAnnotation("Finish describing Prometheus Metrics.");
-    } finally {
-      scope.close();
-      span.end();
-    }
-    return samples;
+    DescribeMetricExporter describeMetricExporter = new DescribeMetricExporter(namespace);
+    describeMetricReader.readAndExport(describeMetricExporter);
+    return describeMetricExporter.samples;
   }
 
   @VisibleForTesting
-  PrometheusStatsCollector(ViewManager viewManager) {
-    this.viewManager = viewManager;
-    Tracing.getExportComponent()
-        .getSampledSpanStore()
-        .registerSpanNamesForCollection(
-            ImmutableList.of("DescribeMetricsForPrometheus", "ExportStatsToPrometheus"));
+  PrometheusStatsCollector(MetricProducerManager metricProducerManager, String namespace) {
+    this.collectMetricReader =
+        MetricReader.create(
+            MetricReader.Options.builder()
+                .setMetricProducerManager(metricProducerManager)
+                .setSpanName(EXPORT_METRICS_TO_PROMETHEUS)
+                .build());
+    this.describeMetricReader =
+        MetricReader.create(
+            MetricReader.Options.builder()
+                .setMetricProducerManager(metricProducerManager)
+                .setSpanName(DESCRIBE_METRICS_FOR_PROMETHEUS)
+                .build());
+    this.namespace = namespace;
   }
 
   private static String exceptionMessage(Throwable e) {

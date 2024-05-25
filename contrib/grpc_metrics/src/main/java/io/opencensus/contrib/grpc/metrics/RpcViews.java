@@ -126,6 +126,39 @@ public final class RpcViews {
           RpcViewConstants.RPC_SERVER_STARTED_COUNT_HOUR_VIEW,
           RpcViewConstants.RPC_SERVER_FINISHED_COUNT_HOUR_VIEW);
 
+  @VisibleForTesting
+  static final ImmutableSet<View> GRPC_REAL_TIME_METRICS_VIEWS_SET =
+      ImmutableSet.of(
+          RpcViewConstants.GRPC_CLIENT_SENT_BYTES_PER_METHOD_VIEW,
+          RpcViewConstants.GRPC_CLIENT_RECEIVED_BYTES_PER_METHOD_VIEW,
+          RpcViewConstants.GRPC_CLIENT_SENT_MESSAGES_PER_METHOD_VIEW,
+          RpcViewConstants.GRPC_CLIENT_RECEIVED_MESSAGES_PER_METHOD_VIEW,
+          RpcViewConstants.GRPC_SERVER_SENT_BYTES_PER_METHOD_VIEW,
+          RpcViewConstants.GRPC_SERVER_RECEIVED_BYTES_PER_METHOD_VIEW,
+          RpcViewConstants.GRPC_SERVER_SENT_MESSAGES_PER_METHOD_VIEW,
+          RpcViewConstants.GRPC_SERVER_RECEIVED_MESSAGES_PER_METHOD_VIEW);
+
+  @VisibleForTesting
+  static final ImmutableSet<View> GRPC_CLIENT_BASIC_VIEWS_SET =
+      ImmutableSet.of(
+          RpcViewConstants.GRPC_CLIENT_ROUNDTRIP_LATENCY_VIEW,
+          RpcViewConstants.GRPC_CLIENT_STARTED_RPC_VIEW);
+
+  @VisibleForTesting
+  static final ImmutableSet<View> GRPC_CLIENT_RETRY_VIEWS_SET =
+      ImmutableSet.of(
+          RpcViewConstants.GRPC_CLIENT_RETRIES_PER_CALL_VIEW,
+          RpcViewConstants.GRPC_CLIENT_RETRIES_VIEW,
+          RpcViewConstants.GRPC_CLIENT_TRANSPARENT_RETRIES_PER_CALL_VIEW,
+          RpcViewConstants.GRPC_CLIENT_TRANSPARENT_RETRIES_VIEW,
+          RpcViewConstants.GRPC_CLIENT_RETRY_DELAY_PER_CALL_VIEW);
+
+  @VisibleForTesting
+  static final ImmutableSet<View> GRPC_SERVER_BASIC_VIEWS_SET =
+      ImmutableSet.of(
+          RpcViewConstants.GRPC_SERVER_SERVER_LATENCY_VIEW,
+          RpcViewConstants.GRPC_SERVER_STARTED_RPC_VIEW);
+
   /**
    * Registers all standard gRPC views.
    *
@@ -165,6 +198,24 @@ public final class RpcViews {
   }
 
   /**
+   * Registers client retry gRPC views.
+   *
+   * <p>It is recommended to call this method before doing any RPC call to avoid missing stats.
+   *
+   * @since 0.31.0
+   */
+  public static void registerClientRetryGrpcViews() {
+    registerClientRetryGrpcViews(Stats.getViewManager());
+  }
+
+  @VisibleForTesting
+  static void registerClientRetryGrpcViews(ViewManager viewManager) {
+    for (View view : GRPC_CLIENT_RETRY_VIEWS_SET) {
+      viewManager.registerView(view);
+    }
+  }
+
+  /**
    * Registers all standard server gRPC views.
    *
    * <p>It is recommended to call this method before doing any RPC call to avoid missing stats.
@@ -178,6 +229,62 @@ public final class RpcViews {
   @VisibleForTesting
   static void registerServerGrpcViews(ViewManager viewManager) {
     for (View view : GRPC_SERVER_VIEWS_SET) {
+      viewManager.registerView(view);
+    }
+  }
+
+  /**
+   * Registers all basic gRPC views.
+   *
+   * <p>It is recommended to call this method before doing any RPC call to avoid missing stats.
+   *
+   * <p>This is equivalent with calling {@link #registerClientGrpcBasicViews()} and {@link
+   * #registerServerGrpcBasicViews()}.
+   *
+   * @since 0.19
+   */
+  public static void registerAllGrpcBasicViews() {
+    registerAllGrpcBasicViews(Stats.getViewManager());
+  }
+
+  @VisibleForTesting
+  static void registerAllGrpcBasicViews(ViewManager viewManager) {
+    registerClientGrpcBasicViews(viewManager);
+    registerServerGrpcBasicViews(viewManager);
+  }
+
+  /**
+   * Registers basic client gRPC views.
+   *
+   * <p>It is recommended to call this method before doing any RPC call to avoid missing stats.
+   *
+   * @since 0.19
+   */
+  public static void registerClientGrpcBasicViews() {
+    registerClientGrpcBasicViews(Stats.getViewManager());
+  }
+
+  @VisibleForTesting
+  static void registerClientGrpcBasicViews(ViewManager viewManager) {
+    for (View view : GRPC_CLIENT_BASIC_VIEWS_SET) {
+      viewManager.registerView(view);
+    }
+  }
+
+  /**
+   * Registers basic server gRPC views.
+   *
+   * <p>It is recommended to call this method before doing any RPC call to avoid missing stats.
+   *
+   * @since 0.19
+   */
+  public static void registerServerGrpcBasicViews() {
+    registerServerGrpcBasicViews(Stats.getViewManager());
+  }
+
+  @VisibleForTesting
+  static void registerServerGrpcBasicViews(ViewManager viewManager) {
+    for (View view : GRPC_SERVER_BASIC_VIEWS_SET) {
       viewManager.registerView(view);
     }
   }
@@ -244,6 +351,23 @@ public final class RpcViews {
   static void registerAllViews(ViewManager viewManager) {
     registerAllCumulativeViews(viewManager);
     registerAllIntervalViews(viewManager);
+  }
+
+  /**
+   * Registers views for real time metrics reporting for streaming RPCs. This views will produce
+   * data only for streaming gRPC calls.
+   *
+   * @since 0.18
+   */
+  public static void registerRealTimeMetricsViews() {
+    registerRealTimeMetricsViews(Stats.getViewManager());
+  }
+
+  @VisibleForTesting
+  static void registerRealTimeMetricsViews(ViewManager viewManager) {
+    for (View view : GRPC_REAL_TIME_METRICS_VIEWS_SET) {
+      viewManager.registerView(view);
+    }
   }
 
   private RpcViews() {}

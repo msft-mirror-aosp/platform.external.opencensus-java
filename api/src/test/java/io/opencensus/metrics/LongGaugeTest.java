@@ -42,8 +42,6 @@ public class LongGaugeTest {
   private static final List<LabelKey> EMPTY_LABEL_KEYS = new ArrayList<LabelKey>();
   private static final List<LabelValue> EMPTY_LABEL_VALUES = new ArrayList<LabelValue>();
 
-  // TODO(mayurkale): Add more tests, once LongGauge plugs-in into the registry.
-
   @Test
   public void noopGetOrCreateTimeSeries_WithNullLabelValues() {
     LongGauge longGauge = LongGauge.newNoopLongGauge(NAME, DESCRIPTION, UNIT, EMPTY_LABEL_KEYS);
@@ -57,7 +55,7 @@ public class LongGaugeTest {
     List<LabelValue> labelValues = Collections.singletonList(null);
     LongGauge longGauge = LongGauge.newNoopLongGauge(NAME, DESCRIPTION, UNIT, LABEL_KEY);
     thrown.expect(NullPointerException.class);
-    thrown.expectMessage("labelValue element should not be null.");
+    thrown.expectMessage("labelValue");
     longGauge.getOrCreateTimeSeries(labelValues);
   }
 
@@ -65,7 +63,7 @@ public class LongGaugeTest {
   public void noopGetOrCreateTimeSeries_WithInvalidLabelSize() {
     LongGauge longGauge = LongGauge.newNoopLongGauge(NAME, DESCRIPTION, UNIT, LABEL_KEY);
     thrown.expect(IllegalArgumentException.class);
-    thrown.expectMessage("Incorrect number of labels.");
+    thrown.expectMessage("Label Keys and Label Values don't have same size.");
     longGauge.getOrCreateTimeSeries(EMPTY_LABEL_VALUES);
   }
 
@@ -80,8 +78,8 @@ public class LongGaugeTest {
   @Test
   public void noopSameAs() {
     LongGauge longGauge = LongGauge.newNoopLongGauge(NAME, DESCRIPTION, UNIT, LABEL_KEY);
-    assertThat(longGauge.getDefaultTimeSeries()).isSameAs(longGauge.getDefaultTimeSeries());
+    assertThat(longGauge.getDefaultTimeSeries()).isSameInstanceAs(longGauge.getDefaultTimeSeries());
     assertThat(longGauge.getDefaultTimeSeries())
-        .isSameAs(longGauge.getOrCreateTimeSeries(LABEL_VALUES));
+        .isSameInstanceAs(longGauge.getOrCreateTimeSeries(LABEL_VALUES));
   }
 }

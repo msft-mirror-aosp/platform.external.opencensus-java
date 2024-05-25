@@ -17,9 +17,16 @@
 package io.opencensus.exporter.stats.stackdriver;
 
 import static com.google.common.truth.Truth.assertThat;
-import static io.opencensus.exporter.stats.stackdriver.StackdriverExporterWorker.CUSTOM_OPENCENSUS_DOMAIN;
-import static io.opencensus.exporter.stats.stackdriver.StackdriverExporterWorker.DEFAULT_DISPLAY_NAME_PREFIX;
+import static io.opencensus.exporter.stats.stackdriver.StackdriverExportUtils.CUSTOM_OPENCENSUS_DOMAIN;
+import static io.opencensus.exporter.stats.stackdriver.StackdriverExportUtils.DEFAULT_CONSTANT_LABELS;
+import static io.opencensus.exporter.stats.stackdriver.StackdriverExportUtils.DEFAULT_DISPLAY_NAME_PREFIX;
+import static io.opencensus.exporter.stats.stackdriver.StackdriverExportUtils.PERCENTILE_LABEL_KEY;
+import static io.opencensus.exporter.stats.stackdriver.StackdriverExportUtils.SNAPSHOT_SUFFIX_PERCENTILE;
+import static io.opencensus.exporter.stats.stackdriver.StackdriverExportUtils.STACKDRIVER_PROJECT_ID_KEY;
+import static io.opencensus.exporter.stats.stackdriver.StackdriverExportUtils.SUMMARY_SUFFIX_COUNT;
+import static io.opencensus.exporter.stats.stackdriver.StackdriverExportUtils.SUMMARY_SUFFIX_SUM;
 
+import com.google.api.Distribution;
 import com.google.api.Distribution.BucketOptions;
 import com.google.api.Distribution.BucketOptions.Explicit;
 import com.google.api.LabelDescriptor;
@@ -29,221 +36,307 @@ import com.google.api.MetricDescriptor;
 import com.google.api.MetricDescriptor.MetricKind;
 import com.google.api.MonitoredResource;
 import com.google.common.collect.ImmutableMap;
-import com.google.monitoring.v3.Point;
+import com.google.monitoring.v3.SpanContext;
 import com.google.monitoring.v3.TimeInterval;
 import com.google.monitoring.v3.TimeSeries;
 import com.google.monitoring.v3.TypedValue;
-import io.opencensus.common.Duration;
+import com.google.protobuf.Any;
+import com.google.protobuf.ByteString;
 import io.opencensus.common.Timestamp;
-import io.opencensus.stats.Aggregation.Count;
-import io.opencensus.stats.Aggregation.Distribution;
-import io.opencensus.stats.Aggregation.LastValue;
-import io.opencensus.stats.Aggregation.Mean;
-import io.opencensus.stats.Aggregation.Sum;
-import io.opencensus.stats.AggregationData.CountData;
-import io.opencensus.stats.AggregationData.DistributionData;
-import io.opencensus.stats.AggregationData.LastValueDataDouble;
-import io.opencensus.stats.AggregationData.LastValueDataLong;
-import io.opencensus.stats.AggregationData.MeanData;
-import io.opencensus.stats.AggregationData.SumDataDouble;
-import io.opencensus.stats.AggregationData.SumDataLong;
-import io.opencensus.stats.BucketBoundaries;
-import io.opencensus.stats.Measure.MeasureDouble;
-import io.opencensus.stats.Measure.MeasureLong;
-import io.opencensus.stats.View;
-import io.opencensus.stats.View.AggregationWindow.Cumulative;
-import io.opencensus.stats.View.AggregationWindow.Interval;
-import io.opencensus.stats.View.Name;
-import io.opencensus.stats.ViewData;
-import io.opencensus.stats.ViewData.AggregationWindowData.CumulativeData;
-import io.opencensus.stats.ViewData.AggregationWindowData.IntervalData;
-import io.opencensus.tags.TagKey;
-import io.opencensus.tags.TagValue;
+import io.opencensus.contrib.exemplar.util.AttachmentValueSpanContext;
+import io.opencensus.contrib.exemplar.util.ExemplarUtils;
+import io.opencensus.contrib.resource.util.CloudResource;
+import io.opencensus.contrib.resource.util.ContainerResource;
+import io.opencensus.contrib.resource.util.HostResource;
+import io.opencensus.contrib.resource.util.K8sResource;
+import io.opencensus.metrics.LabelKey;
+import io.opencensus.metrics.LabelValue;
+import io.opencensus.metrics.data.AttachmentValue;
+import io.opencensus.metrics.data.AttachmentValue.AttachmentValueString;
+import io.opencensus.metrics.data.Exemplar;
+import io.opencensus.metrics.export.Distribution.Bucket;
+import io.opencensus.metrics.export.MetricDescriptor.Type;
+import io.opencensus.metrics.export.Point;
+import io.opencensus.metrics.export.Summary;
+import io.opencensus.metrics.export.Summary.Snapshot;
+import io.opencensus.metrics.export.Summary.Snapshot.ValueAtPercentile;
+import io.opencensus.metrics.export.Value;
+import io.opencensus.resource.Resource;
 import java.lang.management.ManagementFactory;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
 /** Unit tests for {@link StackdriverExportUtils}. */
 @RunWith(JUnit4.class)
 public class StackdriverExportUtilsTest {
+  private static final String METRIC_NAME = "my measurement";
+  private static final String METRIC_DESCRIPTION = "measure description";
+  private static final String METRIC_UNIT = "us";
+  private static final String METRIC_UNIT_2 = "1";
+  private static final List<LabelKey> LABEL_KEY =
+      Collections.singletonList(LabelKey.create("KEY1", "key description"));
+  private static final List<LabelValue> LABEL_VALUE =
+      Collections.singletonList(LabelValue.create("VALUE1"));
+  private static final List<LabelValue> LABEL_VALUE_2 =
+      Collections.singletonList(LabelValue.create("VALUE2"));
+  private static final List<LabelKey> EMPTY_LABEL_KEY = new ArrayList<>();
+  private static final List<LabelValue> EMPTY_LABEL_VALUE = new ArrayList<>();
+  private static final io.opencensus.metrics.export.MetricDescriptor METRIC_DESCRIPTOR =
+      io.opencensus.metrics.export.MetricDescriptor.create(
+          METRIC_NAME, METRIC_DESCRIPTION, METRIC_UNIT, Type.CUMULATIVE_DOUBLE, LABEL_KEY);
+  private static final io.opencensus.metrics.export.MetricDescriptor METRIC_DESCRIPTOR_2 =
+      io.opencensus.metrics.export.MetricDescriptor.create(
+          METRIC_NAME, METRIC_DESCRIPTION, METRIC_UNIT_2, Type.CUMULATIVE_INT64, EMPTY_LABEL_KEY);
+  private static final io.opencensus.metrics.export.MetricDescriptor GAUGE_METRIC_DESCRIPTOR =
+      io.opencensus.metrics.export.MetricDescriptor.create(
+          METRIC_NAME, METRIC_DESCRIPTION, METRIC_UNIT, Type.GAUGE_DOUBLE, LABEL_KEY);
 
-  @Rule public final ExpectedException thrown = ExpectedException.none();
+  private static final List<Double> BUCKET_BOUNDARIES = Arrays.asList(1.0, 3.0, 5.0);
+  private static final io.opencensus.metrics.export.Distribution.BucketOptions BUCKET_OPTIONS =
+      io.opencensus.metrics.export.Distribution.BucketOptions.explicitOptions(BUCKET_BOUNDARIES);
+  private static final Value VALUE_DOUBLE = Value.doubleValue(12345678.2);
+  private static final Value VALUE_DOUBLE_2 = Value.doubleValue(133.79);
 
-  private static final TagKey KEY = TagKey.create("KEY");
-  private static final TagKey KEY_2 = TagKey.create("KEY2");
-  private static final TagKey KEY_3 = TagKey.create("KEY3");
-  private static final TagValue VALUE_1 = TagValue.create("VALUE1");
-  private static final TagValue VALUE_2 = TagValue.create("VALUE2");
-  private static final String MEASURE_UNIT = "us";
-  private static final String MEASURE_DESCRIPTION = "measure description";
-  private static final MeasureDouble MEASURE_DOUBLE =
-      MeasureDouble.create("measure1", MEASURE_DESCRIPTION, MEASURE_UNIT);
-  private static final MeasureLong MEASURE_LONG =
-      MeasureLong.create("measure2", MEASURE_DESCRIPTION, MEASURE_UNIT);
-  private static final String VIEW_NAME = "view";
-  private static final String VIEW_DESCRIPTION = "view description";
-  private static final Duration TEN_SECONDS = Duration.create(10, 0);
-  private static final Cumulative CUMULATIVE = Cumulative.create();
-  private static final Interval INTERVAL = Interval.create(TEN_SECONDS);
-  private static final BucketBoundaries BUCKET_BOUNDARIES =
-      BucketBoundaries.create(Arrays.asList(0.0, 1.0, 3.0, 5.0));
-  private static final Sum SUM = Sum.create();
-  private static final Count COUNT = Count.create();
-  private static final Mean MEAN = Mean.create();
-  private static final Distribution DISTRIBUTION = Distribution.create(BUCKET_BOUNDARIES);
-  private static final LastValue LAST_VALUE = LastValue.create();
+  private static final Timestamp TIMESTAMP = Timestamp.fromMillis(3000);
+  private static final Timestamp TIMESTAMP_2 = Timestamp.fromMillis(1000);
+  private static final Timestamp TIMESTAMP_3 = Timestamp.fromMillis(2000);
+  private static final Point POINT = Point.create(VALUE_DOUBLE, TIMESTAMP);
+  private static final Point POINT_2 = Point.create(VALUE_DOUBLE_2, TIMESTAMP_3);
+  private static final io.opencensus.metrics.export.TimeSeries CUMULATIVE_TIME_SERIES =
+      io.opencensus.metrics.export.TimeSeries.createWithOnePoint(LABEL_VALUE, POINT, TIMESTAMP_2);
+  private static final io.opencensus.metrics.export.TimeSeries GAUGE_TIME_SERIES =
+      io.opencensus.metrics.export.TimeSeries.createWithOnePoint(LABEL_VALUE, POINT, null);
+  private static final io.opencensus.metrics.export.TimeSeries GAUGE_TIME_SERIES_2 =
+      io.opencensus.metrics.export.TimeSeries.createWithOnePoint(LABEL_VALUE_2, POINT_2, null);
+  private static final io.opencensus.metrics.export.Metric METRIC =
+      io.opencensus.metrics.export.Metric.createWithOneTimeSeries(
+          METRIC_DESCRIPTOR, CUMULATIVE_TIME_SERIES);
   private static final String PROJECT_ID = "id";
   private static final MonitoredResource DEFAULT_RESOURCE =
       MonitoredResource.newBuilder().setType("global").build();
+  private static final MonitoredResource.Builder DEFAULT_RESOURCE_WITH_PROJECT_ID =
+      MonitoredResource.newBuilder().putLabels(STACKDRIVER_PROJECT_ID_KEY, "proj1");
+
   private static final String DEFAULT_TASK_VALUE =
       "java-" + ManagementFactory.getRuntimeMXBean().getName();
+  private static final Map<LabelKey, LabelValue> EMPTY_CONSTANT_LABELS = Collections.emptyMap();
+
+  private static final io.opencensus.trace.SpanContext SPAN_CONTEXT_INVALID =
+      io.opencensus.trace.SpanContext.INVALID;
+  private static final Exemplar EXEMPLAR_1 =
+      Exemplar.create(
+          1.2,
+          TIMESTAMP_2,
+          Collections.<String, AttachmentValue>singletonMap(
+              "key", AttachmentValueString.create("value")));
+  private static final Exemplar EXEMPLAR_2 =
+      Exemplar.create(
+          5.6,
+          TIMESTAMP_3,
+          ImmutableMap.<String, AttachmentValue>of(
+              ExemplarUtils.ATTACHMENT_KEY_SPAN_CONTEXT,
+              AttachmentValueSpanContext.create(SPAN_CONTEXT_INVALID)));
+  private static final io.opencensus.metrics.export.Distribution DISTRIBUTION =
+      io.opencensus.metrics.export.Distribution.create(
+          3,
+          2,
+          14,
+          BUCKET_OPTIONS,
+          Arrays.asList(
+              Bucket.create(3),
+              Bucket.create(1, EXEMPLAR_1),
+              Bucket.create(2),
+              Bucket.create(4, EXEMPLAR_2)));
+  private static final Summary SUMMARY =
+      Summary.create(
+          10L,
+          10.0,
+          Snapshot.create(
+              10L, 87.07, Collections.singletonList(ValueAtPercentile.create(0.98, 10.2))));
+  private static final Value DOUBLE_VALUE = Value.doubleValue(1.1);
+  private static final Value LONG_VALUE = Value.longValue(10000);
+  private static final Value DISTRIBUTION_VALUE = Value.distributionValue(DISTRIBUTION);
+  private static final Value SUMMARY_VALUE = Value.summaryValue(SUMMARY);
+
+  private static final io.opencensus.metrics.export.MetricDescriptor HISTOGRAM_METRIC_DESCRIPTOR =
+      io.opencensus.metrics.export.MetricDescriptor.create(
+          METRIC_NAME, METRIC_DESCRIPTION, METRIC_UNIT, Type.CUMULATIVE_DISTRIBUTION, LABEL_KEY);
+
+  private static final Point DISTRIBUTION_POINT = Point.create(DISTRIBUTION_VALUE, TIMESTAMP);
+  private static final io.opencensus.metrics.export.TimeSeries DISTRIBUTION_TIME_SERIES =
+      io.opencensus.metrics.export.TimeSeries.createWithOnePoint(
+          LABEL_VALUE, DISTRIBUTION_POINT, null);
+  private static final io.opencensus.metrics.export.Metric DISTRIBUTION_METRIC =
+      io.opencensus.metrics.export.Metric.createWithOneTimeSeries(
+          HISTOGRAM_METRIC_DESCRIPTOR, DISTRIBUTION_TIME_SERIES);
+  private static final Summary SUMMARY_1 =
+      Summary.create(
+          22L,
+          74.8,
+          Snapshot.create(
+              10L,
+              87.07,
+              Arrays.asList(
+                  ValueAtPercentile.create(50, 6),
+                  ValueAtPercentile.create(75, 10.2),
+                  ValueAtPercentile.create(98, 4.6),
+                  ValueAtPercentile.create(99, 1.2))));
+  private static final Value SUMMARY_VALUE_1 = Value.summaryValue(SUMMARY_1);
+  private static final Point SUMMARY_POINT = Point.create(SUMMARY_VALUE_1, TIMESTAMP);
+  private static final Summary SUMMARY_NULL_SUM =
+      Summary.create(
+          22L,
+          null,
+          Snapshot.create(10L, 87.07, Collections.singletonList(ValueAtPercentile.create(50, 6))));
+  private static final Value SUMMARY_VALUE_NULL_SUM = Value.summaryValue(SUMMARY_NULL_SUM);
+  private static final Point SUMMARY_POINT_NULL_SUM =
+      Point.create(SUMMARY_VALUE_NULL_SUM, TIMESTAMP);
+  private static final io.opencensus.metrics.export.TimeSeries SUMMARY_TIME_SERIES_NULL_SUM =
+      io.opencensus.metrics.export.TimeSeries.createWithOnePoint(
+          LABEL_VALUE, SUMMARY_POINT_NULL_SUM, null);
+  private static final io.opencensus.metrics.export.MetricDescriptor SUMMARY_METRIC_DESCRIPTOR =
+      io.opencensus.metrics.export.MetricDescriptor.create(
+          METRIC_NAME,
+          METRIC_DESCRIPTION,
+          METRIC_UNIT,
+          io.opencensus.metrics.export.MetricDescriptor.Type.SUMMARY,
+          LABEL_KEY);
+  private static final io.opencensus.metrics.export.TimeSeries SUMMARY_TIME_SERIES =
+      io.opencensus.metrics.export.TimeSeries.createWithOnePoint(LABEL_VALUE, SUMMARY_POINT, null);
+
+  private static final io.opencensus.metrics.export.Metric SUMMARY_METRIC =
+      io.opencensus.metrics.export.Metric.createWithOneTimeSeries(
+          SUMMARY_METRIC_DESCRIPTOR, SUMMARY_TIME_SERIES);
+  private static final io.opencensus.metrics.export.Metric SUMMARY_METRIC_NULL_SUM =
+      io.opencensus.metrics.export.Metric.createWithOneTimeSeries(
+          SUMMARY_METRIC_DESCRIPTOR, SUMMARY_TIME_SERIES_NULL_SUM);
 
   @Test
-  public void testConstant() {
-    assertThat(StackdriverExportUtils.LABEL_DESCRIPTION).isEqualTo("OpenCensus TagKey");
+  public void testConstants() {
+    assertThat(StackdriverExportUtils.OPENCENSUS_TASK_KEY)
+        .isEqualTo(LabelKey.create("opencensus_task", "Opencensus task identifier"));
+    assertThat(StackdriverExportUtils.OPENCENSUS_TASK_VALUE_DEFAULT.getValue())
+        .isEqualTo(DEFAULT_TASK_VALUE);
+    assertThat(StackdriverExportUtils.STACKDRIVER_PROJECT_ID_KEY).isEqualTo("project_id");
+    assertThat(StackdriverExportUtils.MAX_BATCH_EXPORT_SIZE).isEqualTo(200);
+    assertThat(StackdriverExportUtils.CUSTOM_METRIC_DOMAIN).isEqualTo("custom.googleapis.com/");
+    assertThat(StackdriverExportUtils.CUSTOM_OPENCENSUS_DOMAIN)
+        .isEqualTo("custom.googleapis.com/opencensus/");
+    assertThat(StackdriverExportUtils.DEFAULT_DISPLAY_NAME_PREFIX).isEqualTo("OpenCensus/");
   }
 
   @Test
   public void createLabelDescriptor() {
-    assertThat(StackdriverExportUtils.createLabelDescriptor(TagKey.create("string")))
+    assertThat(StackdriverExportUtils.createLabelDescriptor(LabelKey.create("key", "desc")))
         .isEqualTo(
             LabelDescriptor.newBuilder()
-                .setKey("string")
-                .setDescription(StackdriverExportUtils.LABEL_DESCRIPTION)
+                .setKey("key")
+                .setDescription("desc")
                 .setValueType(ValueType.STRING)
                 .build());
   }
 
   @Test
   public void createMetricKind() {
-    assertThat(StackdriverExportUtils.createMetricKind(CUMULATIVE, SUM))
+    assertThat(StackdriverExportUtils.createMetricKind(Type.CUMULATIVE_INT64))
         .isEqualTo(MetricKind.CUMULATIVE);
-    assertThat(StackdriverExportUtils.createMetricKind(INTERVAL, COUNT))
+    assertThat(StackdriverExportUtils.createMetricKind(Type.SUMMARY))
         .isEqualTo(MetricKind.UNRECOGNIZED);
-    assertThat(StackdriverExportUtils.createMetricKind(CUMULATIVE, LAST_VALUE))
+    assertThat(StackdriverExportUtils.createMetricKind(Type.GAUGE_INT64))
         .isEqualTo(MetricKind.GAUGE);
-    assertThat(StackdriverExportUtils.createMetricKind(INTERVAL, LAST_VALUE))
+    assertThat(StackdriverExportUtils.createMetricKind(Type.GAUGE_DOUBLE))
         .isEqualTo(MetricKind.GAUGE);
   }
 
   @Test
   public void createValueType() {
-    assertThat(StackdriverExportUtils.createValueType(SUM, MEASURE_DOUBLE))
+    assertThat(StackdriverExportUtils.createValueType(Type.GAUGE_DOUBLE))
         .isEqualTo(MetricDescriptor.ValueType.DOUBLE);
-    assertThat(StackdriverExportUtils.createValueType(SUM, MEASURE_LONG))
+    assertThat(StackdriverExportUtils.createValueType(Type.CUMULATIVE_INT64))
         .isEqualTo(MetricDescriptor.ValueType.INT64);
-    assertThat(StackdriverExportUtils.createValueType(COUNT, MEASURE_DOUBLE))
+    assertThat(StackdriverExportUtils.createValueType(Type.GAUGE_INT64))
         .isEqualTo(MetricDescriptor.ValueType.INT64);
-    assertThat(StackdriverExportUtils.createValueType(COUNT, MEASURE_LONG))
-        .isEqualTo(MetricDescriptor.ValueType.INT64);
-    assertThat(StackdriverExportUtils.createValueType(MEAN, MEASURE_DOUBLE))
+    assertThat(StackdriverExportUtils.createValueType(Type.CUMULATIVE_DOUBLE))
         .isEqualTo(MetricDescriptor.ValueType.DOUBLE);
-    assertThat(StackdriverExportUtils.createValueType(MEAN, MEASURE_LONG))
-        .isEqualTo(MetricDescriptor.ValueType.DOUBLE);
-    assertThat(StackdriverExportUtils.createValueType(DISTRIBUTION, MEASURE_DOUBLE))
+    assertThat(StackdriverExportUtils.createValueType(Type.GAUGE_DISTRIBUTION))
         .isEqualTo(MetricDescriptor.ValueType.DISTRIBUTION);
-    assertThat(StackdriverExportUtils.createValueType(DISTRIBUTION, MEASURE_LONG))
+    assertThat(StackdriverExportUtils.createValueType(Type.CUMULATIVE_DISTRIBUTION))
         .isEqualTo(MetricDescriptor.ValueType.DISTRIBUTION);
-    assertThat(StackdriverExportUtils.createValueType(LAST_VALUE, MEASURE_DOUBLE))
-        .isEqualTo(MetricDescriptor.ValueType.DOUBLE);
-    assertThat(StackdriverExportUtils.createValueType(LAST_VALUE, MEASURE_LONG))
-        .isEqualTo(MetricDescriptor.ValueType.INT64);
-  }
-
-  @Test
-  public void createUnit() {
-    assertThat(StackdriverExportUtils.createUnit(SUM, MEASURE_DOUBLE)).isEqualTo(MEASURE_UNIT);
-    assertThat(StackdriverExportUtils.createUnit(COUNT, MEASURE_DOUBLE)).isEqualTo("1");
-    assertThat(StackdriverExportUtils.createUnit(MEAN, MEASURE_DOUBLE)).isEqualTo(MEASURE_UNIT);
-    assertThat(StackdriverExportUtils.createUnit(DISTRIBUTION, MEASURE_DOUBLE))
-        .isEqualTo(MEASURE_UNIT);
-    assertThat(StackdriverExportUtils.createUnit(LAST_VALUE, MEASURE_DOUBLE))
-        .isEqualTo(MEASURE_UNIT);
   }
 
   @Test
   public void createMetric() {
-    View view =
-        View.create(
-            Name.create(VIEW_NAME),
-            VIEW_DESCRIPTION,
-            MEASURE_DOUBLE,
-            DISTRIBUTION,
-            Arrays.asList(KEY),
-            CUMULATIVE);
     assertThat(
             StackdriverExportUtils.createMetric(
-                view, Arrays.asList(VALUE_1), CUSTOM_OPENCENSUS_DOMAIN))
+                METRIC_DESCRIPTOR, LABEL_VALUE, CUSTOM_OPENCENSUS_DOMAIN, DEFAULT_CONSTANT_LABELS))
         .isEqualTo(
             Metric.newBuilder()
-                .setType("custom.googleapis.com/opencensus/" + VIEW_NAME)
-                .putLabels("KEY", "VALUE1")
-                .putLabels(StackdriverExportUtils.OPENCENSUS_TASK, DEFAULT_TASK_VALUE)
+                .setType("custom.googleapis.com/opencensus/" + METRIC_NAME)
+                .putLabels("KEY1", "VALUE1")
+                .putLabels(StackdriverExportUtils.OPENCENSUS_TASK_KEY.getKey(), DEFAULT_TASK_VALUE)
                 .build());
   }
 
   @Test
   public void createMetric_WithExternalMetricDomain() {
-    View view =
-        View.create(
-            Name.create(VIEW_NAME),
-            VIEW_DESCRIPTION,
-            MEASURE_DOUBLE,
-            DISTRIBUTION,
-            Arrays.asList(KEY),
-            CUMULATIVE);
     String prometheusDomain = "external.googleapis.com/prometheus/";
-    assertThat(StackdriverExportUtils.createMetric(view, Arrays.asList(VALUE_1), prometheusDomain))
-        .isEqualTo(
-            Metric.newBuilder()
-                .setType(prometheusDomain + VIEW_NAME)
-                .putLabels("KEY", "VALUE1")
-                .putLabels(StackdriverExportUtils.OPENCENSUS_TASK, DEFAULT_TASK_VALUE)
-                .build());
-  }
-
-  @Test
-  public void createMetric_skipNullTagValue() {
-    View view =
-        View.create(
-            Name.create(VIEW_NAME),
-            VIEW_DESCRIPTION,
-            MEASURE_DOUBLE,
-            DISTRIBUTION,
-            Arrays.asList(KEY, KEY_2, KEY_3),
-            CUMULATIVE);
     assertThat(
             StackdriverExportUtils.createMetric(
-                view, Arrays.asList(VALUE_1, null, VALUE_2), CUSTOM_OPENCENSUS_DOMAIN))
+                METRIC_DESCRIPTOR, LABEL_VALUE, prometheusDomain, DEFAULT_CONSTANT_LABELS))
         .isEqualTo(
             Metric.newBuilder()
-                .setType("custom.googleapis.com/opencensus/" + VIEW_NAME)
-                .putLabels("KEY", "VALUE1")
-                .putLabels("KEY3", "VALUE2")
-                .putLabels(StackdriverExportUtils.OPENCENSUS_TASK, DEFAULT_TASK_VALUE)
+                .setType(prometheusDomain + METRIC_NAME)
+                .putLabels("KEY1", "VALUE1")
+                .putLabels(StackdriverExportUtils.OPENCENSUS_TASK_KEY.getKey(), DEFAULT_TASK_VALUE)
                 .build());
   }
 
   @Test
-  public void createMetric_throwWhenTagKeysAndValuesHaveDifferentSize() {
-    View view =
-        View.create(
-            Name.create(VIEW_NAME),
-            VIEW_DESCRIPTION,
-            MEASURE_DOUBLE,
-            DISTRIBUTION,
-            Arrays.asList(KEY, KEY_2, KEY_3),
-            CUMULATIVE);
-    List<TagValue> tagValues = Arrays.asList(VALUE_1, null);
-    thrown.expect(IllegalArgumentException.class);
-    thrown.expectMessage("TagKeys and TagValues don't have same size.");
-    StackdriverExportUtils.createMetric(view, tagValues, CUSTOM_OPENCENSUS_DOMAIN);
+  public void createMetric_EmptyLabel() {
+    assertThat(
+            StackdriverExportUtils.createMetric(
+                METRIC_DESCRIPTOR_2,
+                EMPTY_LABEL_VALUE,
+                CUSTOM_OPENCENSUS_DOMAIN,
+                DEFAULT_CONSTANT_LABELS))
+        .isEqualTo(
+            Metric.newBuilder()
+                .setType("custom.googleapis.com/opencensus/" + METRIC_NAME)
+                .putLabels(StackdriverExportUtils.OPENCENSUS_TASK_KEY.getKey(), DEFAULT_TASK_VALUE)
+                .build());
+  }
+
+  @Test
+  public void createMetric_EmptyConstantLabels() {
+    assertThat(
+            StackdriverExportUtils.createMetric(
+                METRIC_DESCRIPTOR_2,
+                EMPTY_LABEL_VALUE,
+                CUSTOM_OPENCENSUS_DOMAIN,
+                EMPTY_CONSTANT_LABELS))
+        .isEqualTo(
+            Metric.newBuilder().setType("custom.googleapis.com/opencensus/" + METRIC_NAME).build());
+  }
+
+  @Test
+  public void createMetric_CustomConstantLabels() {
+    Map<LabelKey, LabelValue> constantLabels =
+        Collections.singletonMap(LabelKey.create("my_key", "desc"), LabelValue.create("value"));
+    assertThat(
+            StackdriverExportUtils.createMetric(
+                METRIC_DESCRIPTOR_2, EMPTY_LABEL_VALUE, CUSTOM_OPENCENSUS_DOMAIN, constantLabels))
+        .isEqualTo(
+            Metric.newBuilder()
+                .setType("custom.googleapis.com/opencensus/" + METRIC_NAME)
+                .putAllLabels(Collections.singletonMap("my_key", "value"))
+                .build());
   }
 
   @Test
@@ -261,37 +354,8 @@ public class StackdriverExportUtilsTest {
   }
 
   @Test
-  public void createTimeInterval_cumulative() {
-    Timestamp censusTimestamp1 = Timestamp.create(100, 3000);
-    Timestamp censusTimestamp2 = Timestamp.create(200, 0);
-    assertThat(
-            StackdriverExportUtils.createTimeInterval(
-                CumulativeData.create(censusTimestamp1, censusTimestamp2), DISTRIBUTION))
-        .isEqualTo(
-            TimeInterval.newBuilder()
-                .setStartTime(StackdriverExportUtils.convertTimestamp(censusTimestamp1))
-                .setEndTime(StackdriverExportUtils.convertTimestamp(censusTimestamp2))
-                .build());
-    assertThat(
-            StackdriverExportUtils.createTimeInterval(
-                CumulativeData.create(censusTimestamp1, censusTimestamp2), LAST_VALUE))
-        .isEqualTo(
-            TimeInterval.newBuilder()
-                .setEndTime(StackdriverExportUtils.convertTimestamp(censusTimestamp2))
-                .build());
-  }
-
-  @Test
-  public void createTimeInterval_interval() {
-    IntervalData intervalData = IntervalData.create(Timestamp.create(200, 0));
-    // Only Cumulative view will supported in this version.
-    thrown.expect(IllegalArgumentException.class);
-    StackdriverExportUtils.createTimeInterval(intervalData, SUM);
-  }
-
-  @Test
   public void createBucketOptions() {
-    assertThat(StackdriverExportUtils.createBucketOptions(BUCKET_BOUNDARIES))
+    assertThat(StackdriverExportUtils.createBucketOptions(BUCKET_OPTIONS))
         .isEqualTo(
             BucketOptions.newBuilder()
                 .setExplicitBuckets(
@@ -300,259 +364,316 @@ public class StackdriverExportUtilsTest {
   }
 
   @Test
+  public void createBucketOptions_Null() {
+    assertThat(StackdriverExportUtils.createBucketOptions(null))
+        .isEqualTo(BucketOptions.newBuilder().build());
+  }
+
+  @Test
   public void createDistribution() {
-    DistributionData distributionData =
-        DistributionData.create(2, 3, 0, 5, 14, Arrays.asList(0L, 1L, 1L, 0L, 1L));
-    assertThat(StackdriverExportUtils.createDistribution(distributionData, BUCKET_BOUNDARIES))
+    StackdriverExportUtils.setCachedProjectIdForExemplar(null);
+    assertThat(StackdriverExportUtils.createDistribution(DISTRIBUTION))
         .isEqualTo(
-            com.google.api.Distribution.newBuilder()
-                .setMean(2)
+            Distribution.newBuilder()
                 .setCount(3)
-                // TODO(songya): uncomment this once Stackdriver supports setting max and min.
-                // .setRange(
-                //     com.google.api.Distribution.Range.newBuilder().setMin(0).setMax(5).build())
-                .setBucketOptions(StackdriverExportUtils.createBucketOptions(BUCKET_BOUNDARIES))
-                .addAllBucketCounts(Arrays.asList(0L, 1L, 1L, 0L, 1L))
+                .setMean(0.6666666666666666)
+                .setBucketOptions(StackdriverExportUtils.createBucketOptions(BUCKET_OPTIONS))
+                .addAllBucketCounts(Arrays.asList(0L, 3L, 1L, 2L, 4L))
                 .setSumOfSquaredDeviation(14)
+                .addAllExemplars(
+                    Arrays.<Distribution.Exemplar>asList(
+                        Distribution.Exemplar.newBuilder()
+                            .setValue(1.2)
+                            .setTimestamp(StackdriverExportUtils.convertTimestamp(TIMESTAMP_2))
+                            .addAttachments(
+                                Any.newBuilder()
+                                    .setTypeUrl(
+                                        StackdriverExportUtils.EXEMPLAR_ATTACHMENT_TYPE_STRING)
+                                    .setValue(ByteString.copyFromUtf8("value"))
+                                    .build())
+                            .build(),
+                        Distribution.Exemplar.newBuilder()
+                            .setValue(5.6)
+                            .setTimestamp(StackdriverExportUtils.convertTimestamp(TIMESTAMP_3))
+                            // Cached project ID is set to null, so no SpanContext attachment will
+                            // be created.
+                            .build()))
                 .build());
   }
 
   @Test
   public void createTypedValue() {
-    assertThat(StackdriverExportUtils.createTypedValue(SUM, SumDataDouble.create(1.1)))
+    assertThat(StackdriverExportUtils.createTypedValue(DOUBLE_VALUE))
         .isEqualTo(TypedValue.newBuilder().setDoubleValue(1.1).build());
-    assertThat(StackdriverExportUtils.createTypedValue(SUM, SumDataLong.create(10000)))
+    assertThat(StackdriverExportUtils.createTypedValue(LONG_VALUE))
         .isEqualTo(TypedValue.newBuilder().setInt64Value(10000).build());
-    assertThat(StackdriverExportUtils.createTypedValue(COUNT, CountData.create(55)))
-        .isEqualTo(TypedValue.newBuilder().setInt64Value(55).build());
-    assertThat(StackdriverExportUtils.createTypedValue(MEAN, MeanData.create(7.7, 8)))
-        .isEqualTo(TypedValue.newBuilder().setDoubleValue(7.7).build());
-    DistributionData distributionData =
-        DistributionData.create(2, 3, 0, 5, 14, Arrays.asList(0L, 1L, 1L, 0L, 1L));
-    assertThat(StackdriverExportUtils.createTypedValue(DISTRIBUTION, distributionData))
+    assertThat(StackdriverExportUtils.createTypedValue(DISTRIBUTION_VALUE))
         .isEqualTo(
             TypedValue.newBuilder()
-                .setDistributionValue(
-                    StackdriverExportUtils.createDistribution(distributionData, BUCKET_BOUNDARIES))
+                .setDistributionValue(StackdriverExportUtils.createDistribution(DISTRIBUTION))
                 .build());
-    assertThat(StackdriverExportUtils.createTypedValue(LAST_VALUE, LastValueDataDouble.create(9.9)))
-        .isEqualTo(TypedValue.newBuilder().setDoubleValue(9.9).build());
-    assertThat(StackdriverExportUtils.createTypedValue(LAST_VALUE, LastValueDataLong.create(90000)))
-        .isEqualTo(TypedValue.newBuilder().setInt64Value(90000).build());
   }
 
   @Test
-  public void createPoint_cumulative() {
-    Timestamp censusTimestamp1 = Timestamp.create(100, 3000);
-    Timestamp censusTimestamp2 = Timestamp.create(200, 0);
-    CumulativeData cumulativeData = CumulativeData.create(censusTimestamp1, censusTimestamp2);
-    SumDataDouble sumDataDouble = SumDataDouble.create(33.3);
+  public void createTypedValue_UnknownType() {
+    assertThat(StackdriverExportUtils.createTypedValue(SUMMARY_VALUE))
+        .isEqualTo(TypedValue.newBuilder().build());
+  }
 
-    assertThat(StackdriverExportUtils.createPoint(sumDataDouble, cumulativeData, SUM))
+  @Test
+  public void createPoint() {
+    assertThat(StackdriverExportUtils.createPoint(POINT, null))
         .isEqualTo(
-            Point.newBuilder()
-                .setInterval(StackdriverExportUtils.createTimeInterval(cumulativeData, SUM))
-                .setValue(StackdriverExportUtils.createTypedValue(SUM, sumDataDouble))
+            com.google.monitoring.v3.Point.newBuilder()
+                .setInterval(
+                    TimeInterval.newBuilder()
+                        .setEndTime(StackdriverExportUtils.convertTimestamp(TIMESTAMP))
+                        .build())
+                .setValue(StackdriverExportUtils.createTypedValue(VALUE_DOUBLE))
                 .build());
   }
 
   @Test
-  public void createPoint_interval() {
-    IntervalData intervalData = IntervalData.create(Timestamp.create(200, 0));
-    SumDataDouble sumDataDouble = SumDataDouble.create(33.3);
-    // Only Cumulative view will supported in this version.
-    thrown.expect(IllegalArgumentException.class);
-    StackdriverExportUtils.createPoint(sumDataDouble, intervalData, SUM);
+  public void createPoint_Cumulative() {
+    assertThat(StackdriverExportUtils.createPoint(POINT, TIMESTAMP_2))
+        .isEqualTo(
+            com.google.monitoring.v3.Point.newBuilder()
+                .setInterval(
+                    TimeInterval.newBuilder()
+                        .setStartTime(StackdriverExportUtils.convertTimestamp(TIMESTAMP_2))
+                        .setEndTime(StackdriverExportUtils.convertTimestamp(TIMESTAMP))
+                        .build())
+                .setValue(StackdriverExportUtils.createTypedValue(VALUE_DOUBLE))
+                .build());
   }
 
   @Test
-  public void createMetricDescriptor_cumulative() {
-    View view =
-        View.create(
-            Name.create(VIEW_NAME),
-            VIEW_DESCRIPTION,
-            MEASURE_DOUBLE,
-            DISTRIBUTION,
-            Arrays.asList(KEY),
-            CUMULATIVE);
+  public void createMetricDescriptor() {
     MetricDescriptor metricDescriptor =
         StackdriverExportUtils.createMetricDescriptor(
-            view, PROJECT_ID, "custom.googleapis.com/myorg/", "myorg/");
+            METRIC_DESCRIPTOR,
+            PROJECT_ID,
+            "custom.googleapis.com/myorg/",
+            "myorg/",
+            DEFAULT_CONSTANT_LABELS);
     assertThat(metricDescriptor.getName())
         .isEqualTo(
             "projects/"
                 + PROJECT_ID
                 + "/metricDescriptors/custom.googleapis.com/myorg/"
-                + VIEW_NAME);
-    assertThat(metricDescriptor.getDescription()).isEqualTo(VIEW_DESCRIPTION);
-    assertThat(metricDescriptor.getDisplayName()).isEqualTo("myorg/" + VIEW_NAME);
-    assertThat(metricDescriptor.getType()).isEqualTo("custom.googleapis.com/myorg/" + VIEW_NAME);
-    assertThat(metricDescriptor.getUnit()).isEqualTo(MEASURE_UNIT);
+                + METRIC_NAME);
+    assertThat(metricDescriptor.getDescription()).isEqualTo(METRIC_DESCRIPTION);
+    assertThat(metricDescriptor.getDisplayName()).isEqualTo("myorg/" + METRIC_NAME);
+    assertThat(metricDescriptor.getType()).isEqualTo("custom.googleapis.com/myorg/" + METRIC_NAME);
+    assertThat(metricDescriptor.getUnit()).isEqualTo(METRIC_UNIT);
     assertThat(metricDescriptor.getMetricKind()).isEqualTo(MetricKind.CUMULATIVE);
-    assertThat(metricDescriptor.getValueType()).isEqualTo(MetricDescriptor.ValueType.DISTRIBUTION);
+
+    assertThat(metricDescriptor.getValueType()).isEqualTo(MetricDescriptor.ValueType.DOUBLE);
     assertThat(metricDescriptor.getLabelsList())
         .containsExactly(
             LabelDescriptor.newBuilder()
-                .setKey(KEY.getName())
-                .setDescription(StackdriverExportUtils.LABEL_DESCRIPTION)
+                .setKey(LABEL_KEY.get(0).getKey())
+                .setDescription(LABEL_KEY.get(0).getDescription())
                 .setValueType(ValueType.STRING)
                 .build(),
             LabelDescriptor.newBuilder()
-                .setKey(StackdriverExportUtils.OPENCENSUS_TASK)
-                .setDescription(StackdriverExportUtils.OPENCENSUS_TASK_DESCRIPTION)
+                .setKey(StackdriverExportUtils.OPENCENSUS_TASK_KEY.getKey())
+                .setDescription(StackdriverExportUtils.OPENCENSUS_TASK_KEY.getDescription())
                 .setValueType(ValueType.STRING)
                 .build());
   }
 
   @Test
-  public void createMetricDescriptor_cumulative_count() {
-    View view =
-        View.create(
-            Name.create(VIEW_NAME),
-            VIEW_DESCRIPTION,
-            MEASURE_DOUBLE,
-            COUNT,
-            Arrays.asList(KEY),
-            CUMULATIVE);
+  public void createMetricDescriptor_WithCustomConstantLabels() {
+    Map<LabelKey, LabelValue> constantLabels =
+        Collections.singletonMap(LabelKey.create("my_key", "desc"), LabelValue.create("value"));
     MetricDescriptor metricDescriptor =
         StackdriverExportUtils.createMetricDescriptor(
-            view, PROJECT_ID, CUSTOM_OPENCENSUS_DOMAIN, DEFAULT_DISPLAY_NAME_PREFIX);
+            METRIC_DESCRIPTOR,
+            PROJECT_ID,
+            "custom.googleapis.com/myorg/",
+            "myorg/",
+            constantLabels);
+    assertThat(metricDescriptor.getLabelsList())
+        .containsExactly(
+            LabelDescriptor.newBuilder()
+                .setKey(LABEL_KEY.get(0).getKey())
+                .setDescription(LABEL_KEY.get(0).getDescription())
+                .setValueType(ValueType.STRING)
+                .build(),
+            LabelDescriptor.newBuilder()
+                .setKey("my_key")
+                .setDescription("desc")
+                .setValueType(ValueType.STRING)
+                .build());
+  }
+
+  @Test
+  public void createMetricDescriptor_cumulative() {
+    MetricDescriptor metricDescriptor =
+        StackdriverExportUtils.createMetricDescriptor(
+            METRIC_DESCRIPTOR_2,
+            PROJECT_ID,
+            CUSTOM_OPENCENSUS_DOMAIN,
+            DEFAULT_DISPLAY_NAME_PREFIX,
+            DEFAULT_CONSTANT_LABELS);
     assertThat(metricDescriptor.getName())
         .isEqualTo(
             "projects/"
                 + PROJECT_ID
                 + "/metricDescriptors/custom.googleapis.com/opencensus/"
-                + VIEW_NAME);
-    assertThat(metricDescriptor.getDescription()).isEqualTo(VIEW_DESCRIPTION);
-    assertThat(metricDescriptor.getDisplayName()).isEqualTo("OpenCensus/" + VIEW_NAME);
+                + METRIC_NAME);
+    assertThat(metricDescriptor.getDescription()).isEqualTo(METRIC_DESCRIPTION);
+    assertThat(metricDescriptor.getDisplayName()).isEqualTo("OpenCensus/" + METRIC_NAME);
     assertThat(metricDescriptor.getType())
-        .isEqualTo("custom.googleapis.com/opencensus/" + VIEW_NAME);
+        .isEqualTo("custom.googleapis.com/opencensus/" + METRIC_NAME);
     assertThat(metricDescriptor.getUnit()).isEqualTo("1");
     assertThat(metricDescriptor.getMetricKind()).isEqualTo(MetricKind.CUMULATIVE);
     assertThat(metricDescriptor.getValueType()).isEqualTo(MetricDescriptor.ValueType.INT64);
     assertThat(metricDescriptor.getLabelsList())
         .containsExactly(
             LabelDescriptor.newBuilder()
-                .setKey(KEY.getName())
-                .setDescription(StackdriverExportUtils.LABEL_DESCRIPTION)
-                .setValueType(ValueType.STRING)
-                .build(),
-            LabelDescriptor.newBuilder()
-                .setKey(StackdriverExportUtils.OPENCENSUS_TASK)
-                .setDescription(StackdriverExportUtils.OPENCENSUS_TASK_DESCRIPTION)
+                .setKey(StackdriverExportUtils.OPENCENSUS_TASK_KEY.getKey())
+                .setDescription(StackdriverExportUtils.OPENCENSUS_TASK_KEY.getDescription())
                 .setValueType(ValueType.STRING)
                 .build());
   }
 
   @Test
-  public void createMetricDescriptor_interval() {
-    View view =
-        View.create(
-            Name.create(VIEW_NAME),
-            VIEW_DESCRIPTION,
-            MEASURE_DOUBLE,
-            DISTRIBUTION,
-            Arrays.asList(KEY),
-            INTERVAL);
-    assertThat(
-            StackdriverExportUtils.createMetricDescriptor(
-                view, PROJECT_ID, CUSTOM_OPENCENSUS_DOMAIN, DEFAULT_DISPLAY_NAME_PREFIX))
-        .isNull();
+  public void createTimeSeriesList_Cumulative() {
+    List<TimeSeries> timeSeriesList =
+        StackdriverExportUtils.createTimeSeriesList(
+            METRIC,
+            DEFAULT_RESOURCE,
+            CUSTOM_OPENCENSUS_DOMAIN,
+            PROJECT_ID,
+            DEFAULT_CONSTANT_LABELS);
+    assertThat(timeSeriesList).hasSize(1);
+    TimeSeries expectedTimeSeries =
+        TimeSeries.newBuilder()
+            .setMetricKind(MetricKind.CUMULATIVE)
+            .setValueType(MetricDescriptor.ValueType.DOUBLE)
+            .setMetric(
+                StackdriverExportUtils.createMetric(
+                    METRIC_DESCRIPTOR,
+                    LABEL_VALUE,
+                    CUSTOM_OPENCENSUS_DOMAIN,
+                    DEFAULT_CONSTANT_LABELS))
+            .setResource(MonitoredResource.newBuilder().setType("global"))
+            .addPoints(StackdriverExportUtils.createPoint(POINT, TIMESTAMP_2))
+            .build();
+    assertThat(timeSeriesList).containsExactly(expectedTimeSeries);
   }
 
   @Test
-  public void createTimeSeriesList_cumulative() {
-    View view =
-        View.create(
-            Name.create(VIEW_NAME),
-            VIEW_DESCRIPTION,
-            MEASURE_DOUBLE,
-            DISTRIBUTION,
-            Arrays.asList(KEY),
-            CUMULATIVE);
-    DistributionData distributionData1 =
-        DistributionData.create(2, 3, 0, 5, 14, Arrays.asList(0L, 1L, 1L, 0L, 1L));
-    DistributionData distributionData2 =
-        DistributionData.create(-1, 1, -1, -1, 0, Arrays.asList(1L, 0L, 0L, 0L, 0L));
-    Map<List<TagValue>, DistributionData> aggregationMap =
-        ImmutableMap.of(
-            Arrays.asList(VALUE_1), distributionData1, Arrays.asList(VALUE_2), distributionData2);
-    CumulativeData cumulativeData =
-        CumulativeData.create(Timestamp.fromMillis(1000), Timestamp.fromMillis(2000));
-    ViewData viewData = ViewData.create(view, aggregationMap, cumulativeData);
+  public void createTimeSeriesList_Distribution() {
     List<TimeSeries> timeSeriesList =
         StackdriverExportUtils.createTimeSeriesList(
-            viewData, DEFAULT_RESOURCE, CUSTOM_OPENCENSUS_DOMAIN);
+            DISTRIBUTION_METRIC,
+            DEFAULT_RESOURCE,
+            CUSTOM_OPENCENSUS_DOMAIN,
+            PROJECT_ID,
+            DEFAULT_CONSTANT_LABELS);
+
+    assertThat(timeSeriesList.size()).isEqualTo(1);
+    TimeSeries timeSeries = timeSeriesList.get(0);
+    assertThat(timeSeries.getPointsCount()).isEqualTo(1);
+    String expectedSpanName =
+        "projects/id/traces/00000000000000000000000000000000/spans/0000000000000000";
+    assertThat(timeSeries.getPoints(0).getValue().getDistributionValue())
+        .isEqualTo(
+            com.google.api.Distribution.newBuilder()
+                .setCount(3)
+                .setMean(0.6666666666666666)
+                .setBucketOptions(
+                    BucketOptions.newBuilder()
+                        .setExplicitBuckets(
+                            Explicit.newBuilder()
+                                .addAllBounds(Arrays.asList(0.0, 1.0, 3.0, 5.0))
+                                .build())
+                        .build())
+                .addAllBucketCounts(Arrays.asList(0L, 3L, 1L, 2L, 4L))
+                .setSumOfSquaredDeviation(14)
+                .addAllExemplars(
+                    Arrays.<Distribution.Exemplar>asList(
+                        Distribution.Exemplar.newBuilder()
+                            .setValue(1.2)
+                            .setTimestamp(StackdriverExportUtils.convertTimestamp(TIMESTAMP_2))
+                            .addAttachments(
+                                Any.newBuilder()
+                                    .setTypeUrl(
+                                        StackdriverExportUtils.EXEMPLAR_ATTACHMENT_TYPE_STRING)
+                                    .setValue(ByteString.copyFromUtf8("value"))
+                                    .build())
+                            .build(),
+                        Distribution.Exemplar.newBuilder()
+                            .setValue(5.6)
+                            .setTimestamp(StackdriverExportUtils.convertTimestamp(TIMESTAMP_3))
+                            .addAttachments(
+                                Any.newBuilder()
+                                    .setTypeUrl(
+                                        StackdriverExportUtils
+                                            .EXEMPLAR_ATTACHMENT_TYPE_SPAN_CONTEXT)
+                                    .setValue(
+                                        SpanContext.newBuilder()
+                                            .setSpanName(expectedSpanName)
+                                            .build()
+                                            .toByteString())
+                                    .build())
+                            .build()))
+                .build());
+  }
+
+  @Test
+  public void createTimeSeriesList_Gauge() {
+    io.opencensus.metrics.export.Metric metric =
+        io.opencensus.metrics.export.Metric.create(
+            GAUGE_METRIC_DESCRIPTOR, Arrays.asList(GAUGE_TIME_SERIES, GAUGE_TIME_SERIES_2));
+
+    List<TimeSeries> timeSeriesList =
+        StackdriverExportUtils.createTimeSeriesList(
+            metric,
+            DEFAULT_RESOURCE,
+            CUSTOM_OPENCENSUS_DOMAIN,
+            PROJECT_ID,
+            DEFAULT_CONSTANT_LABELS);
     assertThat(timeSeriesList).hasSize(2);
     TimeSeries expected1 =
         TimeSeries.newBuilder()
-            .setMetricKind(MetricKind.CUMULATIVE)
-            .setValueType(MetricDescriptor.ValueType.DISTRIBUTION)
+            .setMetricKind(MetricKind.GAUGE)
+            .setValueType(MetricDescriptor.ValueType.DOUBLE)
             .setMetric(
                 StackdriverExportUtils.createMetric(
-                    view, Arrays.asList(VALUE_1), CUSTOM_OPENCENSUS_DOMAIN))
+                    GAUGE_METRIC_DESCRIPTOR,
+                    LABEL_VALUE,
+                    CUSTOM_OPENCENSUS_DOMAIN,
+                    DEFAULT_CONSTANT_LABELS))
             .setResource(MonitoredResource.newBuilder().setType("global"))
-            .addPoints(
-                StackdriverExportUtils.createPoint(distributionData1, cumulativeData, DISTRIBUTION))
+            .addPoints(StackdriverExportUtils.createPoint(POINT, null))
             .build();
     TimeSeries expected2 =
         TimeSeries.newBuilder()
-            .setMetricKind(MetricKind.CUMULATIVE)
-            .setValueType(MetricDescriptor.ValueType.DISTRIBUTION)
+            .setMetricKind(MetricKind.GAUGE)
+            .setValueType(MetricDescriptor.ValueType.DOUBLE)
             .setMetric(
                 StackdriverExportUtils.createMetric(
-                    view, Arrays.asList(VALUE_2), CUSTOM_OPENCENSUS_DOMAIN))
+                    GAUGE_METRIC_DESCRIPTOR,
+                    LABEL_VALUE_2,
+                    CUSTOM_OPENCENSUS_DOMAIN,
+                    DEFAULT_CONSTANT_LABELS))
             .setResource(MonitoredResource.newBuilder().setType("global"))
-            .addPoints(
-                StackdriverExportUtils.createPoint(distributionData2, cumulativeData, DISTRIBUTION))
+            .addPoints(StackdriverExportUtils.createPoint(POINT_2, null))
             .build();
     assertThat(timeSeriesList).containsExactly(expected1, expected2);
-  }
-
-  @Test
-  public void createTimeSeriesList_interval() {
-    View view =
-        View.create(
-            Name.create(VIEW_NAME),
-            VIEW_DESCRIPTION,
-            MEASURE_DOUBLE,
-            DISTRIBUTION,
-            Arrays.asList(KEY),
-            INTERVAL);
-    Map<List<TagValue>, DistributionData> aggregationMap =
-        ImmutableMap.of(
-            Arrays.asList(VALUE_1),
-            DistributionData.create(2, 3, 0, 5, 14, Arrays.asList(0L, 1L, 1L, 0L, 1L)),
-            Arrays.asList(VALUE_2),
-            DistributionData.create(-1, 1, -1, -1, 0, Arrays.asList(1L, 0L, 0L, 0L, 0L)));
-    ViewData viewData =
-        ViewData.create(view, aggregationMap, IntervalData.create(Timestamp.fromMillis(2000)));
-    assertThat(
-            StackdriverExportUtils.createTimeSeriesList(
-                viewData, DEFAULT_RESOURCE, CUSTOM_OPENCENSUS_DOMAIN))
-        .isEmpty();
   }
 
   @Test
   public void createTimeSeriesList_withCustomMonitoredResource() {
     MonitoredResource resource =
         MonitoredResource.newBuilder().setType("global").putLabels("key", "value").build();
-    View view =
-        View.create(
-            Name.create(VIEW_NAME),
-            VIEW_DESCRIPTION,
-            MEASURE_DOUBLE,
-            SUM,
-            Arrays.asList(KEY),
-            CUMULATIVE);
-    SumDataDouble sumData = SumDataDouble.create(55.5);
-    Map<List<TagValue>, SumDataDouble> aggregationMap =
-        ImmutableMap.of(Arrays.asList(VALUE_1), sumData);
-    CumulativeData cumulativeData =
-        CumulativeData.create(Timestamp.fromMillis(1000), Timestamp.fromMillis(2000));
-    ViewData viewData = ViewData.create(view, aggregationMap, cumulativeData);
     List<TimeSeries> timeSeriesList =
-        StackdriverExportUtils.createTimeSeriesList(viewData, resource, CUSTOM_OPENCENSUS_DOMAIN);
+        StackdriverExportUtils.createTimeSeriesList(
+            METRIC, resource, CUSTOM_OPENCENSUS_DOMAIN, PROJECT_ID, DEFAULT_CONSTANT_LABELS);
     assertThat(timeSeriesList)
         .containsExactly(
             TimeSeries.newBuilder()
@@ -560,9 +681,233 @@ public class StackdriverExportUtilsTest {
                 .setValueType(MetricDescriptor.ValueType.DOUBLE)
                 .setMetric(
                     StackdriverExportUtils.createMetric(
-                        view, Arrays.asList(VALUE_1), CUSTOM_OPENCENSUS_DOMAIN))
+                        METRIC_DESCRIPTOR,
+                        LABEL_VALUE,
+                        CUSTOM_OPENCENSUS_DOMAIN,
+                        DEFAULT_CONSTANT_LABELS))
                 .setResource(resource)
-                .addPoints(StackdriverExportUtils.createPoint(sumData, cumulativeData, SUM))
+                .addPoints(StackdriverExportUtils.createPoint(POINT, TIMESTAMP_2))
                 .build());
+  }
+
+  @Test
+  public void convertSummaryMetric() {
+    io.opencensus.metrics.export.MetricDescriptor expectedMetricDescriptor1 =
+        io.opencensus.metrics.export.MetricDescriptor.create(
+            METRIC_NAME + SUMMARY_SUFFIX_COUNT,
+            METRIC_DESCRIPTION,
+            METRIC_UNIT_2,
+            Type.CUMULATIVE_INT64,
+            LABEL_KEY);
+    io.opencensus.metrics.export.MetricDescriptor expectedMetricDescriptor2 =
+        io.opencensus.metrics.export.MetricDescriptor.create(
+            METRIC_NAME + SUMMARY_SUFFIX_SUM,
+            METRIC_DESCRIPTION,
+            METRIC_UNIT,
+            Type.CUMULATIVE_DOUBLE,
+            LABEL_KEY);
+    List<LabelKey> labelKeys = new ArrayList<>(LABEL_KEY);
+    labelKeys.add(PERCENTILE_LABEL_KEY);
+    io.opencensus.metrics.export.MetricDescriptor expectedMetricDescriptor3 =
+        io.opencensus.metrics.export.MetricDescriptor.create(
+            METRIC_NAME + SNAPSHOT_SUFFIX_PERCENTILE,
+            METRIC_DESCRIPTION,
+            METRIC_UNIT,
+            Type.GAUGE_DOUBLE,
+            labelKeys);
+    List<io.opencensus.metrics.export.TimeSeries> expectedTimeSeries1 =
+        Collections.singletonList(
+            io.opencensus.metrics.export.TimeSeries.createWithOnePoint(
+                LABEL_VALUE, Point.create(Value.longValue(22), TIMESTAMP), null));
+    List<io.opencensus.metrics.export.TimeSeries> expectedTimeSeries2 =
+        Collections.singletonList(
+            io.opencensus.metrics.export.TimeSeries.createWithOnePoint(
+                LABEL_VALUE, Point.create(Value.doubleValue(74.8), TIMESTAMP), null));
+    LabelValue existingLabelValues = LABEL_VALUE.get(0);
+    List<io.opencensus.metrics.export.TimeSeries> expectedTimeSeries3 =
+        Arrays.asList(
+            io.opencensus.metrics.export.TimeSeries.createWithOnePoint(
+                Arrays.asList(existingLabelValues, LabelValue.create("50.0")),
+                Point.create(Value.doubleValue(6), TIMESTAMP),
+                null),
+            io.opencensus.metrics.export.TimeSeries.createWithOnePoint(
+                Arrays.asList(existingLabelValues, LabelValue.create("75.0")),
+                Point.create(Value.doubleValue(10.2), TIMESTAMP),
+                null),
+            io.opencensus.metrics.export.TimeSeries.createWithOnePoint(
+                Arrays.asList(existingLabelValues, LabelValue.create("98.0")),
+                Point.create(Value.doubleValue(4.6), TIMESTAMP),
+                null),
+            io.opencensus.metrics.export.TimeSeries.createWithOnePoint(
+                Arrays.asList(existingLabelValues, LabelValue.create("99.0")),
+                Point.create(Value.doubleValue(1.2), TIMESTAMP),
+                null));
+    List<io.opencensus.metrics.export.Metric> metrics =
+        StackdriverExportUtils.convertSummaryMetric(SUMMARY_METRIC);
+
+    assertThat(metrics).isNotEmpty();
+    assertThat(metrics.size()).isEqualTo(3);
+    assertThat(metrics.get(0).getMetricDescriptor()).isEqualTo(expectedMetricDescriptor1);
+    assertThat(metrics.get(0).getTimeSeriesList()).isNotEmpty();
+    assertThat(metrics.get(0).getTimeSeriesList().size()).isEqualTo(1);
+    assertThat(metrics.get(0).getTimeSeriesList()).containsExactlyElementsIn(expectedTimeSeries1);
+    assertThat(metrics.get(1).getTimeSeriesList().size()).isEqualTo(1);
+    assertThat(metrics.get(1).getTimeSeriesList()).containsExactlyElementsIn(expectedTimeSeries2);
+    assertThat(metrics.get(1).getTimeSeriesList()).isNotEmpty();
+    assertThat(metrics.get(1).getMetricDescriptor()).isEqualTo(expectedMetricDescriptor2);
+    assertThat(metrics.get(2).getTimeSeriesList()).isNotEmpty();
+    assertThat(metrics.get(2).getMetricDescriptor()).isEqualTo(expectedMetricDescriptor3);
+    assertThat(metrics.get(2).getTimeSeriesList().size()).isEqualTo(4);
+    assertThat(metrics.get(2).getTimeSeriesList()).containsExactlyElementsIn(expectedTimeSeries3);
+  }
+
+  @Test
+  public void convertSummaryMetricWithNullSum() {
+    io.opencensus.metrics.export.MetricDescriptor expectedMetricDescriptor1 =
+        io.opencensus.metrics.export.MetricDescriptor.create(
+            METRIC_NAME + SUMMARY_SUFFIX_COUNT,
+            METRIC_DESCRIPTION,
+            METRIC_UNIT_2,
+            Type.CUMULATIVE_INT64,
+            LABEL_KEY);
+    List<LabelKey> labelKeys = new ArrayList<>(LABEL_KEY);
+    labelKeys.add(PERCENTILE_LABEL_KEY);
+    io.opencensus.metrics.export.MetricDescriptor expectedMetricDescriptor2 =
+        io.opencensus.metrics.export.MetricDescriptor.create(
+            METRIC_NAME + SNAPSHOT_SUFFIX_PERCENTILE,
+            METRIC_DESCRIPTION,
+            METRIC_UNIT,
+            Type.GAUGE_DOUBLE,
+            labelKeys);
+    List<io.opencensus.metrics.export.TimeSeries> expectedTimeSeries1 =
+        Collections.singletonList(
+            io.opencensus.metrics.export.TimeSeries.createWithOnePoint(
+                LABEL_VALUE, Point.create(Value.longValue(22), TIMESTAMP), null));
+    LabelValue existingLabelValues = LABEL_VALUE.get(0);
+    List<io.opencensus.metrics.export.TimeSeries> expectedTimeSeries2 =
+        Collections.singletonList(
+            io.opencensus.metrics.export.TimeSeries.createWithOnePoint(
+                Arrays.asList(existingLabelValues, LabelValue.create("50.0")),
+                Point.create(Value.doubleValue(6), TIMESTAMP),
+                null));
+    List<io.opencensus.metrics.export.Metric> metrics =
+        StackdriverExportUtils.convertSummaryMetric(SUMMARY_METRIC_NULL_SUM);
+
+    assertThat(metrics).isNotEmpty();
+    assertThat(metrics.size()).isEqualTo(2);
+    assertThat(metrics.get(0).getMetricDescriptor()).isEqualTo(expectedMetricDescriptor1);
+    assertThat(metrics.get(0).getTimeSeriesList()).isNotEmpty();
+    assertThat(metrics.get(0).getTimeSeriesList().size()).isEqualTo(1);
+    assertThat(metrics.get(0).getTimeSeriesList()).containsExactlyElementsIn(expectedTimeSeries1);
+    assertThat(metrics.get(1).getTimeSeriesList()).isNotEmpty();
+    assertThat(metrics.get(1).getMetricDescriptor()).isEqualTo(expectedMetricDescriptor2);
+    assertThat(metrics.get(1).getTimeSeriesList().size()).isEqualTo(1);
+    assertThat(metrics.get(1).getTimeSeriesList()).containsExactlyElementsIn(expectedTimeSeries2);
+  }
+
+  @Test
+  public void setResourceForBuilder_GcpInstanceType() {
+    MonitoredResource.Builder monitoredResourceBuilder = DEFAULT_RESOURCE_WITH_PROJECT_ID.clone();
+    Map<String, String> resourceLabels = new HashMap<String, String>();
+    resourceLabels.put(CloudResource.ACCOUNT_ID_KEY, "proj1");
+    resourceLabels.put(CloudResource.PROVIDER_KEY, CloudResource.PROVIDER_GCP);
+    resourceLabels.put(HostResource.ID_KEY, "inst1");
+    resourceLabels.put(CloudResource.ZONE_KEY, "zone1");
+    resourceLabels.put("extra_key", "must be ignored");
+    Map<String, String> expectedResourceLabels = new HashMap<String, String>();
+    expectedResourceLabels.put("project_id", "proj1");
+    expectedResourceLabels.put("instance_id", "inst1");
+    expectedResourceLabels.put("zone", "zone1");
+    Resource resource = Resource.create(HostResource.TYPE, resourceLabels);
+
+    StackdriverExportUtils.setResourceForBuilder(monitoredResourceBuilder, resource);
+
+    assertThat(monitoredResourceBuilder.getType()).isNotNull();
+    assertThat(monitoredResourceBuilder.getLabelsMap()).isNotEmpty();
+    assertThat(monitoredResourceBuilder.getType()).isEqualTo("gce_instance");
+    assertThat(monitoredResourceBuilder.getLabelsMap().size()).isEqualTo(3);
+    assertThat(monitoredResourceBuilder.getLabelsMap())
+        .containsExactlyEntriesIn(expectedResourceLabels);
+  }
+
+  @Test
+  public void setResourceForBuilder_K8sInstanceType() {
+    MonitoredResource.Builder monitoredResourceBuilder = DEFAULT_RESOURCE_WITH_PROJECT_ID.clone();
+    Map<String, String> resourceLabels = new HashMap<String, String>();
+    resourceLabels.put(CloudResource.ZONE_KEY, "zone1");
+    resourceLabels.put(HostResource.ID_KEY, "instance1");
+    resourceLabels.put(K8sResource.CLUSTER_NAME_KEY, "cluster1");
+    resourceLabels.put(ContainerResource.NAME_KEY, "container1");
+    resourceLabels.put(K8sResource.NAMESPACE_NAME_KEY, "namespace1");
+    resourceLabels.put(K8sResource.POD_NAME_KEY, "pod1");
+    resourceLabels.put("extra_key", "must be ignored");
+    Map<String, String> expectedResourceLabels = new HashMap<String, String>();
+    expectedResourceLabels.put("project_id", "proj1");
+    expectedResourceLabels.put("location", "zone1");
+    expectedResourceLabels.put("cluster_name", "cluster1");
+    expectedResourceLabels.put("namespace_name", "namespace1");
+    expectedResourceLabels.put("pod_name", "pod1");
+    expectedResourceLabels.put("container_name", "container1");
+    Resource resource = Resource.create(ContainerResource.TYPE, resourceLabels);
+
+    StackdriverExportUtils.setResourceForBuilder(monitoredResourceBuilder, resource);
+
+    assertThat(monitoredResourceBuilder.getType()).isNotNull();
+    assertThat(monitoredResourceBuilder.getLabelsMap()).isNotEmpty();
+    assertThat(monitoredResourceBuilder.getType()).isEqualTo("k8s_container");
+    assertThat(monitoredResourceBuilder.getLabelsMap().size()).isEqualTo(6);
+    assertThat(monitoredResourceBuilder.getLabelsMap())
+        .containsExactlyEntriesIn(expectedResourceLabels);
+  }
+
+  @Test
+  public void setResourceForBuilder_AwsInstanceType() {
+    MonitoredResource.Builder monitoredResourceBuilder = DEFAULT_RESOURCE_WITH_PROJECT_ID.clone();
+    Map<String, String> resourceLabels = new HashMap<String, String>();
+    resourceLabels.put(CloudResource.REGION_KEY, "region1");
+    resourceLabels.put(CloudResource.PROVIDER_KEY, CloudResource.PROVIDER_AWS);
+    resourceLabels.put(CloudResource.ACCOUNT_ID_KEY, "account1");
+    resourceLabels.put(HostResource.ID_KEY, "instance1");
+    resourceLabels.put("extra_key", "must be ignored");
+    Map<String, String> expectedResourceLabels = new HashMap<String, String>();
+    expectedResourceLabels.put("project_id", "proj1");
+    expectedResourceLabels.put("instance_id", "instance1");
+    expectedResourceLabels.put(
+        "region", StackdriverExportUtils.AWS_REGION_VALUE_PREFIX + "region1");
+    expectedResourceLabels.put("aws_account", "account1");
+
+    Resource resource = Resource.create(HostResource.TYPE, resourceLabels);
+
+    StackdriverExportUtils.setResourceForBuilder(monitoredResourceBuilder, resource);
+
+    assertThat(monitoredResourceBuilder.getType()).isNotNull();
+    assertThat(monitoredResourceBuilder.getLabelsMap()).isNotEmpty();
+    assertThat(monitoredResourceBuilder.getType()).isEqualTo("aws_ec2_instance");
+    assertThat(monitoredResourceBuilder.getLabelsMap().size()).isEqualTo(4);
+    assertThat(monitoredResourceBuilder.getLabelsMap())
+        .containsExactlyEntriesIn(expectedResourceLabels);
+  }
+
+  @Test
+  public void getDomain() {
+    assertThat(StackdriverExportUtils.getDomain(null))
+        .isEqualTo("custom.googleapis.com/opencensus/");
+    assertThat(StackdriverExportUtils.getDomain("")).isEqualTo("custom.googleapis.com/opencensus/");
+    assertThat(StackdriverExportUtils.getDomain("custom.googleapis.com/myorg/"))
+        .isEqualTo("custom.googleapis.com/myorg/");
+    assertThat(StackdriverExportUtils.getDomain("external.googleapis.com/prometheus/"))
+        .isEqualTo("external.googleapis.com/prometheus/");
+    assertThat(StackdriverExportUtils.getDomain("myorg")).isEqualTo("myorg/");
+  }
+
+  @Test
+  public void getDisplayNamePrefix() {
+    assertThat(StackdriverExportUtils.getDisplayNamePrefix(null)).isEqualTo("OpenCensus/");
+    assertThat(StackdriverExportUtils.getDisplayNamePrefix("")).isEqualTo("");
+    assertThat(StackdriverExportUtils.getDisplayNamePrefix("custom.googleapis.com/myorg/"))
+        .isEqualTo("custom.googleapis.com/myorg/");
+    assertThat(StackdriverExportUtils.getDisplayNamePrefix("external.googleapis.com/prometheus/"))
+        .isEqualTo("external.googleapis.com/prometheus/");
+    assertThat(StackdriverExportUtils.getDisplayNamePrefix("myorg")).isEqualTo("myorg/");
   }
 }

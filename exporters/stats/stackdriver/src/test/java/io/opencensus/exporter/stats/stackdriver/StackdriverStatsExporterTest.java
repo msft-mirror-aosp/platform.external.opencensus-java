@@ -17,10 +17,14 @@
 package io.opencensus.exporter.stats.stackdriver;
 
 import static com.google.common.truth.Truth.assertThat;
+import static io.opencensus.exporter.stats.stackdriver.StackdriverStatsConfiguration.DEFAULT_DEADLINE;
 
+import com.google.api.gax.core.GoogleCredentialsProvider;
+import com.google.api.gax.grpc.InstantiatingGrpcChannelProvider;
 import com.google.auth.Credentials;
 import com.google.auth.oauth2.AccessToken;
 import com.google.auth.oauth2.GoogleCredentials;
+import com.google.cloud.monitoring.v3.MetricServiceClient;
 import io.opencensus.common.Duration;
 import java.io.IOException;
 import java.util.Date;
@@ -35,8 +39,8 @@ import org.junit.runners.JUnit4;
 public class StackdriverStatsExporterTest {
 
   private static final String PROJECT_ID = "projectId";
-  private static final Duration ONE_SECOND = Duration.create(1, 0);
-  private static final Duration NEG_ONE_SECOND = Duration.create(-1, 0);
+  private static final Duration ONE_MINUTE = Duration.create(60, 0);
+  private static final Duration NEG_ONE_MINUTE = Duration.create(-60, 0);
   private static final Credentials FAKE_CREDENTIALS =
       GoogleCredentials.newBuilder().setAccessToken(new AccessToken("fake", new Date(100))).build();
   private static final StackdriverStatsConfiguration CONFIGURATION =
@@ -46,11 +50,6 @@ public class StackdriverStatsExporterTest {
           .build();
 
   @Rule public final ExpectedException thrown = ExpectedException.none();
-
-  @Test
-  public void testConstants() {
-    assertThat(StackdriverStatsExporter.DEFAULT_INTERVAL).isEqualTo(Duration.create(60, 0));
-  }
 
   @Test
   public void createWithNullStackdriverStatsConfiguration() throws IOException {
@@ -64,10 +63,11 @@ public class StackdriverStatsExporterTest {
     StackdriverStatsConfiguration configuration =
         StackdriverStatsConfiguration.builder()
             .setCredentials(FAKE_CREDENTIALS)
-            .setExportInterval(NEG_ONE_SECOND)
+            .setProjectId(PROJECT_ID)
+            .setExportInterval(NEG_ONE_MINUTE)
             .build();
     thrown.expect(IllegalArgumentException.class);
-    thrown.expectMessage("Duration must be positive");
+    thrown.expectMessage("Export interval must be positive");
     StackdriverStatsExporter.createAndRegister(configuration);
   }
 
@@ -77,7 +77,7 @@ public class StackdriverStatsExporterTest {
     thrown.expect(NullPointerException.class);
     thrown.expectMessage("credentials");
     StackdriverStatsExporter.createAndRegisterWithCredentialsAndProjectId(
-        null, PROJECT_ID, ONE_SECOND);
+        null, PROJECT_ID, ONE_MINUTE);
   }
 
   @Test
@@ -86,7 +86,7 @@ public class StackdriverStatsExporterTest {
     thrown.expect(NullPointerException.class);
     thrown.expectMessage("projectId");
     StackdriverStatsExporter.createAndRegisterWithCredentialsAndProjectId(
-        GoogleCredentials.newBuilder().build(), null, ONE_SECOND);
+        GoogleCredentials.newBuilder().build(), null, ONE_MINUTE);
   }
 
   @Test
@@ -102,9 +102,9 @@ public class StackdriverStatsExporterTest {
   @SuppressWarnings("deprecation")
   public void createWithNegativeDuration() throws IOException {
     thrown.expect(IllegalArgumentException.class);
-    thrown.expectMessage("Duration must be positive");
+    thrown.expectMessage("Export interval must be positive");
     StackdriverStatsExporter.createAndRegisterWithCredentialsAndProjectId(
-        GoogleCredentials.newBuilder().build(), PROJECT_ID, NEG_ONE_SECOND);
+        GoogleCredentials.newBuilder().build(), PROJECT_ID, NEG_ONE_MINUTE);
   }
 
   @Test
@@ -115,7 +115,20 @@ public class StackdriverStatsExporterTest {
       thrown.expectMessage("Stackdriver stats exporter is already created.");
       StackdriverStatsExporter.createAndRegister(CONFIGURATION);
     } finally {
-      StackdriverStatsExporter.unsafeResetExporter();
+      StackdriverStatsExporter.unregister();
+    }
+  }
+
+  @Test
+  public void unregister() throws IOException {
+    // unregister has no effect if exporter is not yet registered.
+    StackdriverStatsExporter.unregister();
+    try {
+      StackdriverStatsExporter.createAndRegister(CONFIGURATION);
+      StackdriverStatsExporter.unregister();
+      StackdriverStatsExporter.createAndRegister(CONFIGURATION);
+    } finally {
+      StackdriverStatsExporter.unregister();
     }
   }
 
@@ -124,6 +137,41 @@ public class StackdriverStatsExporterTest {
   public void createWithNullMonitoredResource() throws IOException {
     thrown.expect(NullPointerException.class);
     thrown.expectMessage("monitoredResource");
-    StackdriverStatsExporter.createAndRegisterWithMonitoredResource(ONE_SECOND, null);
+    StackdriverStatsExporter.createAndRegisterWithMonitoredResource(ONE_MINUTE, null);
+  }
+
+  @Test
+  public void createMetricServiceClient() throws IOException {
+    MetricServiceClient client;
+    synchronized (StackdriverStatsExporter.monitor) {
+      client =
+          StackdriverStatsExporter.createMetricServiceClient(FAKE_CREDENTIALS, DEFAULT_DEADLINE);
+    }
+    assertThat(client.getSettings().getCredentialsProvider().getCredentials())
+        .isEqualTo(FAKE_CREDENTIALS);
+    assertThat(client.getSettings().getTransportChannelProvider())
+        .isInstanceOf(InstantiatingGrpcChannelProvider.class);
+    // There's no way to get HeaderProvider from TransportChannelProvider.
+    assertThat(client.getSettings().getTransportChannelProvider().needsHeaders()).isFalse();
+  }
+
+  @Test
+  public void createMetricServiceClient_WithoutCredentials() {
+    try {
+      MetricServiceClient client;
+      synchronized (StackdriverStatsExporter.monitor) {
+        client = StackdriverStatsExporter.createMetricServiceClient(null, DEFAULT_DEADLINE);
+      }
+      assertThat(client.getSettings().getCredentialsProvider())
+          .isInstanceOf(GoogleCredentialsProvider.class);
+      assertThat(client.getSettings().getTransportChannelProvider())
+          .isInstanceOf(InstantiatingGrpcChannelProvider.class);
+      // There's no way to get HeaderProvider from TransportChannelProvider.
+      assertThat(client.getSettings().getTransportChannelProvider().needsHeaders()).isFalse();
+    } catch (IOException e) {
+      // This test depends on the Application Default Credentials settings (environment variable
+      // GOOGLE_APPLICATION_CREDENTIALS). Some hosts may not have the expected environment settings
+      // and this test should be skipped in that case.
+    }
   }
 }

@@ -60,36 +60,36 @@ public class TaggerImplTest {
   @Test
   public void empty() {
     assertThat(tagContextToList(tagger.empty())).isEmpty();
-    assertThat(tagger.empty()).isInstanceOf(TagContextImpl.class);
+    assertThat(tagger.empty()).isInstanceOf(TagMapImpl.class);
   }
 
   @Test
   public void empty_TaggingDisabled() {
     tagsComponent.setState(TaggingState.DISABLED);
     assertThat(tagContextToList(tagger.empty())).isEmpty();
-    assertThat(tagger.empty()).isInstanceOf(TagContextImpl.class);
+    assertThat(tagger.empty()).isInstanceOf(TagMapImpl.class);
   }
 
   @Test
   public void emptyBuilder() {
     TagContextBuilder builder = tagger.emptyBuilder();
-    assertThat(builder).isInstanceOf(TagContextBuilderImpl.class);
+    assertThat(builder).isInstanceOf(TagMapBuilderImpl.class);
     assertThat(tagContextToList(builder.build())).isEmpty();
   }
 
   @Test
   public void emptyBuilder_TaggingDisabled() {
     tagsComponent.setState(TaggingState.DISABLED);
-    assertThat(tagger.emptyBuilder()).isSameAs(NoopTagContextBuilder.INSTANCE);
+    assertThat(tagger.emptyBuilder()).isSameInstanceAs(NoopTagMapBuilder.INSTANCE);
   }
 
   @Test
   public void emptyBuilder_TaggingReenabled() {
     tagsComponent.setState(TaggingState.DISABLED);
-    assertThat(tagger.emptyBuilder()).isSameAs(NoopTagContextBuilder.INSTANCE);
+    assertThat(tagger.emptyBuilder()).isSameInstanceAs(NoopTagMapBuilder.INSTANCE);
     tagsComponent.setState(TaggingState.ENABLED);
     TagContextBuilder builder = tagger.emptyBuilder();
-    assertThat(builder).isInstanceOf(TagContextBuilderImpl.class);
+    assertThat(builder).isInstanceOf(TagMapBuilderImpl.class);
     assertThat(tagContextToList(builder.put(K1, V1).build())).containsExactly(Tag.create(K1, V1));
   }
 
@@ -97,14 +97,14 @@ public class TaggerImplTest {
   public void currentBuilder() {
     TagContext tags = new SimpleTagContext(TAG1, TAG2, TAG3);
     TagContextBuilder result = getResultOfCurrentBuilder(tags);
-    assertThat(result).isInstanceOf(TagContextBuilderImpl.class);
+    assertThat(result).isInstanceOf(TagMapBuilderImpl.class);
     assertThat(tagContextToList(result.build())).containsExactly(TAG1, TAG2, TAG3);
   }
 
   @Test
   public void currentBuilder_DefaultIsEmpty() {
     TagContextBuilder currentBuilder = tagger.currentBuilder();
-    assertThat(currentBuilder).isInstanceOf(TagContextBuilderImpl.class);
+    assertThat(currentBuilder).isInstanceOf(TagMapBuilderImpl.class);
     assertThat(tagContextToList(currentBuilder.build())).isEmpty();
   }
 
@@ -128,22 +128,22 @@ public class TaggerImplTest {
   public void currentBuilder_TaggingDisabled() {
     tagsComponent.setState(TaggingState.DISABLED);
     assertThat(getResultOfCurrentBuilder(new SimpleTagContext(TAG1)))
-        .isSameAs(NoopTagContextBuilder.INSTANCE);
+        .isSameInstanceAs(NoopTagMapBuilder.INSTANCE);
   }
 
   @Test
   public void currentBuilder_TaggingReenabled() {
     TagContext tags = new SimpleTagContext(TAG1);
     tagsComponent.setState(TaggingState.DISABLED);
-    assertThat(getResultOfCurrentBuilder(tags)).isSameAs(NoopTagContextBuilder.INSTANCE);
+    assertThat(getResultOfCurrentBuilder(tags)).isSameInstanceAs(NoopTagMapBuilder.INSTANCE);
     tagsComponent.setState(TaggingState.ENABLED);
     TagContextBuilder builder = getResultOfCurrentBuilder(tags);
-    assertThat(builder).isInstanceOf(TagContextBuilderImpl.class);
+    assertThat(builder).isInstanceOf(TagMapBuilderImpl.class);
     assertThat(tagContextToList(builder.build())).containsExactly(TAG1);
   }
 
   private TagContextBuilder getResultOfCurrentBuilder(TagContext tagsToSet) {
-    Context orig = Context.current().withValue(ContextUtils.TAG_CONTEXT_KEY, tagsToSet).attach();
+    Context orig = ContextUtils.withValue(Context.current(), tagsToSet).attach();
     try {
       return tagger.currentBuilder();
     } finally {
@@ -152,11 +152,11 @@ public class TaggerImplTest {
   }
 
   @Test
-  public void toBuilder_ConvertUnknownTagContextToTagContextImpl() {
+  public void toBuilder_ConvertUnknownTagContextToTagMapImpl() {
     TagContext unknownTagContext = new SimpleTagContext(TAG1, TAG2, TAG3);
     TagContext newTagContext = tagger.toBuilder(unknownTagContext).build();
     assertThat(tagContextToList(newTagContext)).containsExactly(TAG1, TAG2, TAG3);
-    assertThat(newTagContext).isInstanceOf(TagContextImpl.class);
+    assertThat(newTagContext).isInstanceOf(TagMapImpl.class);
   }
 
   @Test
@@ -179,32 +179,32 @@ public class TaggerImplTest {
   public void toBuilder_TaggingDisabled() {
     tagsComponent.setState(TaggingState.DISABLED);
     assertThat(tagger.toBuilder(new SimpleTagContext(TAG1)))
-        .isSameAs(NoopTagContextBuilder.INSTANCE);
+        .isSameInstanceAs(NoopTagMapBuilder.INSTANCE);
   }
 
   @Test
   public void toBuilder_TaggingReenabled() {
     TagContext tags = new SimpleTagContext(TAG1);
     tagsComponent.setState(TaggingState.DISABLED);
-    assertThat(tagger.toBuilder(tags)).isSameAs(NoopTagContextBuilder.INSTANCE);
+    assertThat(tagger.toBuilder(tags)).isSameInstanceAs(NoopTagMapBuilder.INSTANCE);
     tagsComponent.setState(TaggingState.ENABLED);
     TagContextBuilder builder = tagger.toBuilder(tags);
-    assertThat(builder).isInstanceOf(TagContextBuilderImpl.class);
+    assertThat(builder).isInstanceOf(TagMapBuilderImpl.class);
     assertThat(tagContextToList(builder.build())).containsExactly(TAG1);
   }
 
   @Test
-  public void getCurrentTagContext_DefaultIsEmptyTagContextImpl() {
+  public void getCurrentTagContext_DefaultIsEmptyTagMapImpl() {
     TagContext currentTagContext = tagger.getCurrentTagContext();
     assertThat(tagContextToList(currentTagContext)).isEmpty();
-    assertThat(currentTagContext).isInstanceOf(TagContextImpl.class);
+    assertThat(currentTagContext).isInstanceOf(TagMapImpl.class);
   }
 
   @Test
-  public void getCurrentTagContext_ConvertUnknownTagContextToTagContextImpl() {
+  public void getCurrentTagContext_ConvertUnknownTagContextToTagMapImpl() {
     TagContext unknownTagContext = new SimpleTagContext(TAG1, TAG2, TAG3);
     TagContext result = getResultOfGetCurrentTagContext(unknownTagContext);
-    assertThat(result).isInstanceOf(TagContextImpl.class);
+    assertThat(result).isInstanceOf(TagMapImpl.class);
     assertThat(tagContextToList(result)).containsExactly(TAG1, TAG2, TAG3);
   }
 
@@ -241,7 +241,7 @@ public class TaggerImplTest {
   }
 
   private TagContext getResultOfGetCurrentTagContext(TagContext tagsToSet) {
-    Context orig = Context.current().withValue(ContextUtils.TAG_CONTEXT_KEY, tagsToSet).attach();
+    Context orig = ContextUtils.withValue(Context.current(), tagsToSet).attach();
     try {
       return tagger.getCurrentTagContext();
     } finally {
@@ -250,10 +250,10 @@ public class TaggerImplTest {
   }
 
   @Test
-  public void withTagContext_ConvertUnknownTagContextToTagContextImpl() {
+  public void withTagContext_ConvertUnknownTagContextToTagMapImpl() {
     TagContext unknownTagContext = new SimpleTagContext(TAG1, TAG2, TAG3);
     TagContext result = getResultOfWithTagContext(unknownTagContext);
-    assertThat(result).isInstanceOf(TagContextImpl.class);
+    assertThat(result).isInstanceOf(TagMapImpl.class);
     assertThat(tagContextToList(result)).containsExactly(TAG1, TAG2, TAG3);
   }
 
@@ -276,7 +276,8 @@ public class TaggerImplTest {
   @Test
   public void withTagContext_ReturnsNoopScopeWhenTaggingIsDisabled() {
     tagsComponent.setState(TaggingState.DISABLED);
-    assertThat(tagger.withTagContext(new SimpleTagContext(TAG1))).isSameAs(NoopScope.getInstance());
+    assertThat(tagger.withTagContext(new SimpleTagContext(TAG1)))
+        .isSameInstanceAs(NoopScope.getInstance());
   }
 
   @Test
@@ -297,7 +298,7 @@ public class TaggerImplTest {
   private TagContext getResultOfWithTagContext(TagContext tagsToSet) {
     Scope scope = tagger.withTagContext(tagsToSet);
     try {
-      return ContextUtils.TAG_CONTEXT_KEY.get();
+      return ContextUtils.getValue(Context.current());
     } finally {
       scope.close();
     }

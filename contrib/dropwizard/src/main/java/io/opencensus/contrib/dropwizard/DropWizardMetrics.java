@@ -20,6 +20,7 @@ import com.codahale.metrics.Counter;
 import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Meter;
+import com.codahale.metrics.MetricFilter;
 import com.codahale.metrics.Timer;
 import io.opencensus.common.Clock;
 import io.opencensus.common.Timestamp;
@@ -54,8 +55,11 @@ import javax.annotation.Nullable;
  * @since 0.17
  */
 public class DropWizardMetrics extends MetricProducer {
+
   @DefaultVisibilityForTesting static final String DEFAULT_UNIT = "1";
+  @DefaultVisibilityForTesting static final String NS_UNIT = "ns";
   private final List<com.codahale.metrics.MetricRegistry> metricRegistryList;
+  private final MetricFilter metricFilter;
   private final Clock clock;
   private final Timestamp cumulativeStartTimestamp;
 
@@ -66,10 +70,26 @@ public class DropWizardMetrics extends MetricProducer {
    * @since 0.17
    */
   public DropWizardMetrics(List<com.codahale.metrics.MetricRegistry> metricRegistryList) {
-    Utils.checkNotNull(metricRegistryList, "metricRegistryList");
-    Utils.checkListElementNotNull(metricRegistryList, "metricRegistryList");
+    this(metricRegistryList, MetricFilter.ALL);
+  }
+
+  /**
+   * Hook the Dropwizard registry into the OpenCensus registry.
+   *
+   * @param metricRegistryList a list of {@link com.codahale.metrics.MetricRegistry}s.
+   * @param metricFilter a filter to choose which metric to export
+   * @since 0.19
+   */
+  public DropWizardMetrics(
+      List<com.codahale.metrics.MetricRegistry> metricRegistryList, MetricFilter metricFilter) {
+    Utils.checkListElementNotNull(
+        Utils.checkNotNull(metricRegistryList, "metricRegistryList"), "metricRegistry");
     this.metricRegistryList = metricRegistryList;
+    this.metricFilter = Utils.checkNotNull(metricFilter, "metricFilter");
     clock = MillisClock.getInstance();
+
+    // TODO(mayurkale): consider to add cache map<string, CacheEntry> where CacheEntry is
+    // {MetricDescriptor, startTime}
     cumulativeStartTimestamp = clock.now();
   }
 
@@ -81,7 +101,8 @@ public class DropWizardMetrics extends MetricProducer {
    * @return a {@code Metric}.
    */
   @SuppressWarnings("rawtypes")
-  private @Nullable Metric collectGauge(String dropwizardName, Gauge gauge) {
+  @Nullable
+  private Metric collectGauge(String dropwizardName, Gauge gauge) {
     String metricName = DropWizardUtils.generateFullMetricName(dropwizardName, "gauge");
     String metricDescription = DropWizardUtils.generateFullMetricDescription(dropwizardName, gauge);
 
@@ -159,7 +180,7 @@ public class DropWizardMetrics extends MetricProducer {
         TimeSeries.createWithOnePoint(
             Collections.<LabelValue>emptyList(),
             Point.create(Value.longValue(meter.getCount()), clock.now()),
-            null);
+            cumulativeStartTimestamp);
 
     return Metric.createWithOneTimeSeries(metricDescriptor, timeSeries);
   }
@@ -176,7 +197,7 @@ public class DropWizardMetrics extends MetricProducer {
     String metricDescription =
         DropWizardUtils.generateFullMetricDescription(dropwizardName, histogram);
     return collectSnapshotAndCount(
-        metricName, metricDescription, histogram.getSnapshot(), histogram.getCount());
+        metricName, metricDescription, DEFAULT_UNIT, histogram.getSnapshot(), histogram.getCount());
   }
 
   /**
@@ -190,7 +211,7 @@ public class DropWizardMetrics extends MetricProducer {
     String metricName = DropWizardUtils.generateFullMetricName(dropwizardName, "timer");
     String metricDescription = DropWizardUtils.generateFullMetricDescription(dropwizardName, timer);
     return collectSnapshotAndCount(
-        metricName, metricDescription, timer.getSnapshot(), timer.getCount());
+        metricName, metricDescription, NS_UNIT, timer.getSnapshot(), timer.getCount());
   }
 
   /**
@@ -198,6 +219,7 @@ public class DropWizardMetrics extends MetricProducer {
    *
    * @param metricName the metric name.
    * @param metricDescription the metric description.
+   * @param unit the metric descriptor unit.
    * @param codahaleSnapshot the snapshot object to collect
    * @param count the value or count
    * @return a {@code Metric}.
@@ -205,6 +227,7 @@ public class DropWizardMetrics extends MetricProducer {
   private Metric collectSnapshotAndCount(
       String metricName,
       String metricDescription,
+      String unit,
       com.codahale.metrics.Snapshot codahaleSnapshot,
       long count) {
     List<ValueAtPercentile> valueAtPercentiles =
@@ -222,11 +245,7 @@ public class DropWizardMetrics extends MetricProducer {
     // TODO(mayurkale): OPTIMIZATION: Cache the MetricDescriptor objects.
     MetricDescriptor metricDescriptor =
         MetricDescriptor.create(
-            metricName,
-            metricDescription,
-            DEFAULT_UNIT,
-            Type.SUMMARY,
-            Collections.<LabelKey>emptyList());
+            metricName, metricDescription, unit, Type.SUMMARY, Collections.<LabelKey>emptyList());
     TimeSeries timeSeries =
         TimeSeries.createWithOnePoint(
             Collections.<LabelValue>emptyList(), point, cumulativeStartTimestamp);
@@ -240,26 +259,28 @@ public class DropWizardMetrics extends MetricProducer {
     ArrayList<Metric> metrics = new ArrayList<Metric>();
 
     for (com.codahale.metrics.MetricRegistry metricRegistry : metricRegistryList) {
-      for (Entry<String, Counter> counterEntry : metricRegistry.getCounters().entrySet()) {
+      for (Entry<String, Counter> counterEntry :
+          metricRegistry.getCounters(metricFilter).entrySet()) {
         metrics.add(collectCounter(counterEntry.getKey(), counterEntry.getValue()));
       }
 
-      for (Entry<String, Gauge> gaugeEntry : metricRegistry.getGauges().entrySet()) {
+      for (Entry<String, Gauge> gaugeEntry : metricRegistry.getGauges(metricFilter).entrySet()) {
         Metric metric = collectGauge(gaugeEntry.getKey(), gaugeEntry.getValue());
         if (metric != null) {
           metrics.add(metric);
         }
       }
 
-      for (Entry<String, Meter> counterEntry : metricRegistry.getMeters().entrySet()) {
+      for (Entry<String, Meter> counterEntry : metricRegistry.getMeters(metricFilter).entrySet()) {
         metrics.add(collectMeter(counterEntry.getKey(), counterEntry.getValue()));
       }
 
-      for (Entry<String, Histogram> counterEntry : metricRegistry.getHistograms().entrySet()) {
+      for (Entry<String, Histogram> counterEntry :
+          metricRegistry.getHistograms(metricFilter).entrySet()) {
         metrics.add(collectHistogram(counterEntry.getKey(), counterEntry.getValue()));
       }
 
-      for (Entry<String, Timer> counterEntry : metricRegistry.getTimers().entrySet()) {
+      for (Entry<String, Timer> counterEntry : metricRegistry.getTimers(metricFilter).entrySet()) {
         metrics.add(collectTimer(counterEntry.getKey(), counterEntry.getValue()));
       }
     }

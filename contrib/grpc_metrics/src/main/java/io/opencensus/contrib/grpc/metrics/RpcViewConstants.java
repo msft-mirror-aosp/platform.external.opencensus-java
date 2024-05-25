@@ -17,18 +17,29 @@
 package io.opencensus.contrib.grpc.metrics;
 
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_METHOD;
+import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_RECEIVED_BYTES_PER_METHOD;
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_RECEIVED_BYTES_PER_RPC;
+import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_RECEIVED_MESSAGES_PER_METHOD;
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_RECEIVED_MESSAGES_PER_RPC;
+import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_RETRIES_PER_CALL;
+import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_RETRY_DELAY_PER_CALL;
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_ROUNDTRIP_LATENCY;
+import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_SENT_BYTES_PER_METHOD;
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_SENT_BYTES_PER_RPC;
+import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_SENT_MESSAGES_PER_METHOD;
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_SENT_MESSAGES_PER_RPC;
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_SERVER_LATENCY;
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_STARTED_RPCS;
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_STATUS;
+import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_CLIENT_TRANSPARENT_RETRIES_PER_CALL;
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_SERVER_METHOD;
+import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_SERVER_RECEIVED_BYTES_PER_METHOD;
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_SERVER_RECEIVED_BYTES_PER_RPC;
+import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_SERVER_RECEIVED_MESSAGES_PER_METHOD;
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_SERVER_RECEIVED_MESSAGES_PER_RPC;
+import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_SERVER_SENT_BYTES_PER_METHOD;
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_SERVER_SENT_BYTES_PER_RPC;
+import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_SERVER_SENT_MESSAGES_PER_METHOD;
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_SERVER_SENT_MESSAGES_PER_RPC;
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_SERVER_SERVER_LATENCY;
 import static io.opencensus.contrib.grpc.metrics.RpcMeasureConstants.GRPC_SERVER_STARTED_RPCS;
@@ -63,6 +74,7 @@ import io.opencensus.common.Duration;
 import io.opencensus.stats.Aggregation;
 import io.opencensus.stats.Aggregation.Count;
 import io.opencensus.stats.Aggregation.Distribution;
+import io.opencensus.stats.Aggregation.Sum;
 import io.opencensus.stats.BucketBoundaries;
 import io.opencensus.stats.View;
 import java.util.Arrays;
@@ -122,9 +134,14 @@ public final class RpcViewConstants {
               0.0, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 512.0, 1024.0, 2048.0,
               4096.0, 8192.0, 16384.0, 32768.0, 65536.0));
 
+  @VisibleForTesting
+  static final List<Double> RETRY_COUNT_PER_CALL_BUCKET_BOUNDARIES =
+      Collections.unmodifiableList(Arrays.asList(1.0, 2.0, 3.0, 4.0, 5.0));
+
   // Use Aggregation.Mean to record sum and count stats at the same time.
   @VisibleForTesting static final Aggregation MEAN = Aggregation.Mean.create();
   @VisibleForTesting static final Aggregation COUNT = Count.create();
+  @VisibleForTesting static final Aggregation SUM = Sum.create();
 
   @VisibleForTesting
   static final Aggregation AGGREGATION_WITH_BYTES_HISTOGRAM =
@@ -140,6 +157,10 @@ public final class RpcViewConstants {
   @VisibleForTesting
   static final Aggregation AGGREGATION_WITH_COUNT_HISTOGRAM =
       Distribution.create(BucketBoundaries.create(RPC_COUNT_BUCKET_BOUNDARIES));
+
+  @VisibleForTesting
+  static final Aggregation AGGREGATION_WITH_COUNT_RETRY_HISTOGRAM =
+      Distribution.create(BucketBoundaries.create(RETRY_COUNT_PER_CALL_BUCKET_BOUNDARIES));
 
   @VisibleForTesting static final Duration MINUTE = Duration.create(60, 0);
   @VisibleForTesting static final Duration HOUR = Duration.create(60 * 60, 0);
@@ -411,6 +432,58 @@ public final class RpcViewConstants {
           Arrays.asList(GRPC_CLIENT_METHOD));
 
   /**
+   * {@link View} for client sent bytes per method.
+   *
+   * @since 0.18
+   */
+  public static final View GRPC_CLIENT_SENT_BYTES_PER_METHOD_VIEW =
+      View.create(
+          View.Name.create("grpc.io/client/sent_bytes_per_method"),
+          "Sent bytes per method",
+          GRPC_CLIENT_SENT_BYTES_PER_METHOD,
+          SUM,
+          Arrays.asList(GRPC_CLIENT_METHOD));
+
+  /**
+   * {@link View} for client received bytes per method.
+   *
+   * @since 0.18
+   */
+  public static final View GRPC_CLIENT_RECEIVED_BYTES_PER_METHOD_VIEW =
+      View.create(
+          View.Name.create("grpc.io/client/received_bytes_per_method"),
+          "Received bytes per method",
+          GRPC_CLIENT_RECEIVED_BYTES_PER_METHOD,
+          SUM,
+          Arrays.asList(GRPC_CLIENT_METHOD));
+
+  /**
+   * {@link View} for client sent messages.
+   *
+   * @since 0.18
+   */
+  public static final View GRPC_CLIENT_SENT_MESSAGES_PER_METHOD_VIEW =
+      View.create(
+          View.Name.create("grpc.io/client/sent_messages_per_method"),
+          "Number of messages sent",
+          GRPC_CLIENT_SENT_MESSAGES_PER_METHOD,
+          COUNT,
+          Arrays.asList(GRPC_CLIENT_METHOD));
+
+  /**
+   * {@link View} for client received messages.
+   *
+   * @since 0.18
+   */
+  public static final View GRPC_CLIENT_RECEIVED_MESSAGES_PER_METHOD_VIEW =
+      View.create(
+          View.Name.create("grpc.io/client/received_messages_per_method"),
+          "Number of messages received",
+          GRPC_CLIENT_RECEIVED_MESSAGES_PER_METHOD,
+          COUNT,
+          Arrays.asList(GRPC_CLIENT_METHOD));
+
+  /**
    * {@link View} for completed client RPCs.
    *
    * <p>This {@code View} uses measure {@code GRPC_CLIENT_ROUNDTRIP_LATENCY}, since completed RPCs
@@ -438,6 +511,71 @@ public final class RpcViewConstants {
           "Number of started client RPCs",
           GRPC_CLIENT_STARTED_RPCS,
           COUNT,
+          Arrays.asList(GRPC_CLIENT_METHOD));
+
+  /**
+   * {@link View} for client retries per call.
+   *
+   * @since 0.28
+   */
+  public static final View GRPC_CLIENT_RETRIES_PER_CALL_VIEW =
+      View.create(
+          View.Name.create("grpc.io/client/retries_per_call"),
+          "Number of client retries per call",
+          GRPC_CLIENT_RETRIES_PER_CALL,
+          AGGREGATION_WITH_COUNT_RETRY_HISTOGRAM,
+          Arrays.asList(GRPC_CLIENT_METHOD));
+
+  /**
+   * {@link View} for total transparent client retries across calls.
+   *
+   * @since 0.28
+   */
+  public static final View GRPC_CLIENT_TRANSPARENT_RETRIES_VIEW =
+      View.create(
+          View.Name.create("grpc.io/client/transparent_retries"),
+          "Total number of transparent client retries across calls",
+          GRPC_CLIENT_TRANSPARENT_RETRIES_PER_CALL,
+          SUM,
+          Arrays.asList(GRPC_CLIENT_METHOD));
+
+  /**
+   * {@link View} for total time of delay while there is no active attempt during the client call.
+   *
+   * @since 0.28
+   */
+  public static final View GRPC_CLIENT_RETRY_DELAY_PER_CALL_VIEW =
+      View.create(
+          View.Name.create("grpc.io/client/retry_delay_per_call"),
+          "Total time of delay while there is no active attempt during the client call",
+          GRPC_CLIENT_RETRY_DELAY_PER_CALL,
+          AGGREGATION_WITH_MILLIS_HISTOGRAM,
+          Arrays.asList(GRPC_CLIENT_METHOD));
+
+  /**
+   * {@link View} for total retries across all calls, excluding transparent retries.
+   *
+   * @since 0.28
+   */
+  public static final View GRPC_CLIENT_RETRIES_VIEW =
+      View.create(
+          View.Name.create("grpc.io/client/retries"),
+          "Total number of client retries across all calls",
+          GRPC_CLIENT_RETRIES_PER_CALL,
+          SUM,
+          Arrays.asList(GRPC_CLIENT_METHOD));
+
+  /**
+   * {@link View} for transparent retries per call.
+   *
+   * @since 0.28
+   */
+  public static final View GRPC_CLIENT_TRANSPARENT_RETRIES_PER_CALL_VIEW =
+      View.create(
+          View.Name.create("grpc.io/client/transparent_retries_per_call"),
+          "Number of transparent client retries per call",
+          GRPC_CLIENT_TRANSPARENT_RETRIES_PER_CALL,
+          AGGREGATION_WITH_COUNT_RETRY_HISTOGRAM,
           Arrays.asList(GRPC_CLIENT_METHOD));
 
   // Rpc server cumulative views.
@@ -681,6 +819,58 @@ public final class RpcViewConstants {
           "Number of response messages received in each RPC",
           GRPC_SERVER_RECEIVED_MESSAGES_PER_RPC,
           AGGREGATION_WITH_COUNT_HISTOGRAM,
+          Arrays.asList(GRPC_SERVER_METHOD));
+
+  /**
+   * {@link View} for total server sent bytes per method.
+   *
+   * @since 0.18
+   */
+  public static final View GRPC_SERVER_SENT_BYTES_PER_METHOD_VIEW =
+      View.create(
+          View.Name.create("grpc.io/server/sent_bytes_per_method"),
+          "Sent bytes per method",
+          GRPC_SERVER_SENT_BYTES_PER_METHOD,
+          SUM,
+          Arrays.asList(GRPC_SERVER_METHOD));
+
+  /**
+   * {@link View} for total server received bytes per method.
+   *
+   * @since 0.18
+   */
+  public static final View GRPC_SERVER_RECEIVED_BYTES_PER_METHOD_VIEW =
+      View.create(
+          View.Name.create("grpc.io/server/received_bytes_per_method"),
+          "Received bytes per method",
+          GRPC_SERVER_RECEIVED_BYTES_PER_METHOD,
+          SUM,
+          Arrays.asList(GRPC_SERVER_METHOD));
+
+  /**
+   * {@link View} for server sent messages.
+   *
+   * @since 0.18
+   */
+  public static final View GRPC_SERVER_SENT_MESSAGES_PER_METHOD_VIEW =
+      View.create(
+          View.Name.create("grpc.io/server/sent_messages_per_method"),
+          "Number of messages sent",
+          GRPC_SERVER_SENT_MESSAGES_PER_METHOD,
+          COUNT,
+          Arrays.asList(GRPC_SERVER_METHOD));
+
+  /**
+   * {@link View} for server received messages.
+   *
+   * @since 0.18
+   */
+  public static final View GRPC_SERVER_RECEIVED_MESSAGES_PER_METHOD_VIEW =
+      View.create(
+          View.Name.create("grpc.io/server/received_messages_per_method"),
+          "Number of messages received",
+          GRPC_SERVER_RECEIVED_MESSAGES_PER_METHOD,
+          COUNT,
           Arrays.asList(GRPC_SERVER_METHOD));
 
   /**

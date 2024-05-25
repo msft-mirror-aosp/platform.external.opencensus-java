@@ -22,9 +22,11 @@ import com.google.common.testing.EqualsTester;
 import io.opencensus.common.Function;
 import io.opencensus.common.Functions;
 import io.opencensus.common.Timestamp;
+import io.opencensus.metrics.data.AttachmentValue;
+import io.opencensus.metrics.data.AttachmentValue.AttachmentValueString;
+import io.opencensus.metrics.data.Exemplar;
 import io.opencensus.stats.AggregationData.CountData;
 import io.opencensus.stats.AggregationData.DistributionData;
-import io.opencensus.stats.AggregationData.DistributionData.Exemplar;
 import io.opencensus.stats.AggregationData.LastValueDataDouble;
 import io.opencensus.stats.AggregationData.LastValueDataLong;
 import io.opencensus.stats.AggregationData.MeanData;
@@ -48,18 +50,18 @@ public class AggregationDataTest {
   private static final double TOLERANCE = 1e-6;
   private static final Timestamp TIMESTAMP_1 = Timestamp.create(1, 0);
   private static final Timestamp TIMESTAMP_2 = Timestamp.create(2, 0);
-  private static final Map<String, String> ATTACHMENTS = Collections.singletonMap("key", "value");
+  private static final AttachmentValue ATTACHMENT_VALUE = AttachmentValueString.create("value");
+  private static final Map<String, AttachmentValue> ATTACHMENTS =
+      Collections.singletonMap("key", ATTACHMENT_VALUE);
 
   @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Test
   public void testCreateDistributionData() {
     DistributionData distributionData =
-        DistributionData.create(7.7, 10, 1.1, 9.9, 32.2, Arrays.asList(4L, 1L, 5L));
+        DistributionData.create(7.7, 10, 32.2, Arrays.asList(4L, 1L, 5L));
     assertThat(distributionData.getMean()).isWithin(TOLERANCE).of(7.7);
     assertThat(distributionData.getCount()).isEqualTo(10);
-    assertThat(distributionData.getMin()).isWithin(TOLERANCE).of(1.1);
-    assertThat(distributionData.getMax()).isWithin(TOLERANCE).of(9.9);
     assertThat(distributionData.getSumOfSquaredDeviations()).isWithin(TOLERANCE).of(32.2);
     assertThat(distributionData.getBucketCounts()).containsExactly(4L, 1L, 5L).inOrder();
   }
@@ -70,60 +72,29 @@ public class AggregationDataTest {
     Exemplar exemplar2 = Exemplar.create(1, TIMESTAMP_1, ATTACHMENTS);
     DistributionData distributionData =
         DistributionData.create(
-            7.7, 10, 1.1, 9.9, 32.2, Arrays.asList(4L, 1L), Arrays.asList(exemplar1, exemplar2));
+            7.7, 10, 32.2, Arrays.asList(4L, 1L), Arrays.asList(exemplar1, exemplar2));
     assertThat(distributionData.getExemplars()).containsExactly(exemplar1, exemplar2).inOrder();
-  }
-
-  @Test
-  public void testExemplar() {
-    Exemplar exemplar = Exemplar.create(15.0, TIMESTAMP_1, ATTACHMENTS);
-    assertThat(exemplar.getValue()).isEqualTo(15.0);
-    assertThat(exemplar.getTimestamp()).isEqualTo(TIMESTAMP_1);
-    assertThat(exemplar.getAttachments()).isEqualTo(ATTACHMENTS);
-  }
-
-  @Test
-  public void testExemplar_PreventNullAttachments() {
-    thrown.expect(NullPointerException.class);
-    thrown.expectMessage("attachments");
-    Exemplar.create(15, TIMESTAMP_1, null);
-  }
-
-  @Test
-  public void testExemplar_PreventNullAttachmentKey() {
-    Map<String, String> attachments = Collections.singletonMap(null, "value");
-    thrown.expect(NullPointerException.class);
-    thrown.expectMessage("key of attachment");
-    Exemplar.create(15, TIMESTAMP_1, attachments);
-  }
-
-  @Test
-  public void testExemplar_PreventNullAttachmentValue() {
-    Map<String, String> attachments = Collections.singletonMap("key", null);
-    thrown.expect(NullPointerException.class);
-    thrown.expectMessage("value of attachment");
-    Exemplar.create(15, TIMESTAMP_1, attachments);
   }
 
   @Test
   public void preventNullBucketCountList() {
     thrown.expect(NullPointerException.class);
     thrown.expectMessage("bucketCounts");
-    DistributionData.create(1, 1, 1, 1, 0, null);
+    DistributionData.create(1, 1, 0, null);
   }
 
   @Test
   public void preventNullBucket() {
     thrown.expect(NullPointerException.class);
-    thrown.expectMessage("bucket");
-    DistributionData.create(1, 1, 1, 1, 0, Arrays.asList(0L, 1L, null));
+    thrown.expectMessage("bucketCount");
+    DistributionData.create(1, 1, 0, Arrays.asList(0L, 1L, null));
   }
 
   @Test
   public void preventNullExemplarList() {
     thrown.expect(NullPointerException.class);
-    thrown.expectMessage("exemplar list should not be null.");
-    DistributionData.create(1, 1, 1, 1, 0, Arrays.asList(0L, 1L, 1L), null);
+    thrown.expectMessage("exemplars");
+    DistributionData.create(1, 1, 0, Arrays.asList(0L, 1L, 1L), null);
   }
 
   @Test
@@ -131,14 +102,7 @@ public class AggregationDataTest {
     thrown.expect(NullPointerException.class);
     thrown.expectMessage("exemplar");
     DistributionData.create(
-        1, 1, 1, 1, 0, Arrays.asList(0L, 1L, 1L), Collections.<Exemplar>singletonList(null));
-  }
-
-  @Test
-  public void preventMinIsGreaterThanMax() {
-    thrown.expect(IllegalArgumentException.class);
-    thrown.expectMessage("max should be greater or equal to min.");
-    DistributionData.create(1, 1, 10, 1, 0, Arrays.asList(0L, 1L, 0L));
+        1, 1, 0, Arrays.asList(0L, 1L, 1L), Collections.<Exemplar>singletonList(null));
   }
 
   @Test
@@ -150,14 +114,13 @@ public class AggregationDataTest {
         .addEqualityGroup(CountData.create(40), CountData.create(40))
         .addEqualityGroup(CountData.create(80), CountData.create(80))
         .addEqualityGroup(
-            DistributionData.create(10, 10, 1, 1, 0, Arrays.asList(0L, 10L, 0L)),
-            DistributionData.create(10, 10, 1, 1, 0, Arrays.asList(0L, 10L, 0L)))
-        .addEqualityGroup(DistributionData.create(10, 10, 1, 1, 0, Arrays.asList(0L, 10L, 100L)))
-        .addEqualityGroup(DistributionData.create(110, 10, 1, 1, 0, Arrays.asList(0L, 10L, 0L)))
-        .addEqualityGroup(DistributionData.create(10, 110, 1, 1, 0, Arrays.asList(0L, 10L, 0L)))
-        .addEqualityGroup(DistributionData.create(10, 10, -1, 1, 0, Arrays.asList(0L, 10L, 0L)))
-        .addEqualityGroup(DistributionData.create(10, 10, 1, 5, 0, Arrays.asList(0L, 10L, 0L)))
-        .addEqualityGroup(DistributionData.create(10, 10, 1, 1, 55.5, Arrays.asList(0L, 10L, 0L)))
+            DistributionData.create(10, 10, 0, Arrays.asList(0L, 10L, 0L)),
+            DistributionData.create(10, 10, 0, Arrays.asList(0L, 10L, 0L)))
+        .addEqualityGroup(DistributionData.create(10, 10, 0, Arrays.asList(0L, 10L, 100L)))
+        .addEqualityGroup(DistributionData.create(110, 10, 0, Arrays.asList(0L, 10L, 0L)))
+        .addEqualityGroup(DistributionData.create(10, 110, 0, Arrays.asList(0L, 10L, 0L)))
+        .addEqualityGroup(DistributionData.create(10, 10, 10, Arrays.asList(0L, 10L, 0L)))
+        .addEqualityGroup(DistributionData.create(10, 10, 0, Arrays.asList(0L, 110L, 0L)))
         .addEqualityGroup(MeanData.create(5.0, 1), MeanData.create(5.0, 1))
         .addEqualityGroup(MeanData.create(-5.0, 1), MeanData.create(-5.0, 1))
         .addEqualityGroup(LastValueDataDouble.create(20.0), LastValueDataDouble.create(20.0))
@@ -172,7 +135,7 @@ public class AggregationDataTest {
             SumDataDouble.create(10.0),
             SumDataLong.create(100000000),
             CountData.create(40),
-            DistributionData.create(1, 1, 1, 1, 0, Arrays.asList(0L, 10L, 0L)),
+            DistributionData.create(1, 1, 0, Arrays.asList(0L, 10L, 0L)),
             LastValueDataDouble.create(20.0),
             LastValueDataLong.create(200000000L));
 

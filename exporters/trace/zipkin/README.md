@@ -4,7 +4,7 @@
 [![Maven Central][maven-image]][maven-url]
 
 The *OpenCensus Zipkin Trace Exporter* is a trace exporter that exports
-data to Zipkin. [Zipkin](http://zipkin.io/) Zipkin is a distributed
+data to Zipkin. [Zipkin](https://zipkin.io/) Zipkin is a distributed
 tracing system. It helps gather timing data needed to troubleshoot
 latency problems in microservice architectures. It manages both the
 collection and lookup of this data.
@@ -13,12 +13,12 @@ collection and lookup of this data.
 
 ### Prerequisites
 
-[Zipkin](http://zipkin.io/) stores and queries traces exported by
+[Zipkin](https://zipkin.io/) stores and queries traces exported by
 applications instrumented with Census. The easiest way to start a zipkin
 server is to paste the below:
 
 ```bash
-wget -O zipkin.jar 'https://search.maven.org/remote_content?g=io.zipkin.java&a=zipkin-server&v=LATEST&c=exec'
+curl -sSL https://zipkin.io/quickstart.sh | bash -s
 java -jar zipkin.jar
 ```
 
@@ -33,17 +33,17 @@ For Maven add to your `pom.xml`:
   <dependency>
     <groupId>io.opencensus</groupId>
     <artifactId>opencensus-api</artifactId>
-    <version>0.16.1</version>
+    <version>0.28.3</version>
   </dependency>
   <dependency>
     <groupId>io.opencensus</groupId>
     <artifactId>opencensus-exporter-trace-zipkin</artifactId>
-    <version>0.16.1</version>
+    <version>0.28.3</version>
   </dependency>
   <dependency>
     <groupId>io.opencensus</groupId>
     <artifactId>opencensus-impl</artifactId>
-    <version>0.16.1</version>
+    <version>0.28.3</version>
     <scope>runtime</scope>
   </dependency>
 </dependencies>
@@ -51,9 +51,9 @@ For Maven add to your `pom.xml`:
 
 For Gradle add to your dependencies:
 ```groovy
-compile 'io.opencensus:opencensus-api:0.16.1'
-compile 'io.opencensus:opencensus-exporter-trace-zipkin:0.16.1'
-runtime 'io.opencensus:opencensus-impl:0.16.1'
+compile 'io.opencensus:opencensus-api:0.28.3'
+compile 'io.opencensus:opencensus-exporter-trace-zipkin:0.28.3'
+runtime 'io.opencensus:opencensus-impl:0.28.3'
 ```
 
 #### Register the exporter

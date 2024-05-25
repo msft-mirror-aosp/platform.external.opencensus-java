@@ -31,6 +31,17 @@ public class PropagationComponentTest {
   @Test
   public void implementationOfBinaryFormat() {
     assertThat(propagationComponent.getBinaryFormat())
-        .isEqualTo(BinaryFormat.getNoopBinaryFormat());
+        .isSameInstanceAs(BinaryFormat.getNoopBinaryFormat());
+  }
+
+  @Test
+  public void implementationOfB3Format() {
+    assertThat(propagationComponent.getB3Format()).isSameInstanceAs(TextFormat.getNoopTextFormat());
+  }
+
+  @Test
+  public void implementationOfTraceContextFormat() {
+    assertThat(propagationComponent.getTraceContextFormat())
+        .isSameInstanceAs(TextFormat.getNoopTextFormat());
   }
 }

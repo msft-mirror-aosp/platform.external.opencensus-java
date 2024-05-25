@@ -18,7 +18,6 @@ package io.opencensus.implcore.trace.internal;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
-import io.opencensus.implcore.internal.CheckerFrameworkUtils;
 import io.opencensus.implcore.trace.internal.ConcurrentIntrusiveList.Element;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -61,21 +60,36 @@ import javax.annotation.concurrent.ThreadSafe;
  */
 @ThreadSafe
 public final class ConcurrentIntrusiveList<T extends Element<T>> {
+  private final int capacity;
   private int size = 0;
   @Nullable private T head = null;
 
-  public ConcurrentIntrusiveList() {}
+  /**
+   * Constructs a new {@code ConcurrentIntrusiveList}.
+   *
+   * @param capacity must be greater than {@code 0}.
+   */
+  public ConcurrentIntrusiveList(int capacity) {
+    checkArgument(capacity > 0, "Capacity needs to be greater than 0.");
+    this.capacity = capacity;
+  }
 
   /**
-   * Adds the given {@code element} to the list.
+   * Adds the given {@code element} to the list. If the number of elements will be larger than the
+   * capacity then the oldest element in the list will be removed.
    *
    * @param element the element to add.
-   * @throws IllegalArgumentException if the element is already in a list.
+   * @return {@code false} if the element is already in the list or if adding this element will
+   *     exceed capacity.
    */
-  public synchronized void addElement(T element) {
-    checkArgument(
-        element.getNext() == null && element.getPrev() == null && element != head,
-        "Element already in a list.");
+  public synchronized boolean addElement(T element) {
+    if (element.getNext() != null
+        || element.getPrev() != null
+        || element == head
+        || size >= capacity) {
+      // Element already in a list.
+      return false;
+    }
     size++;
     if (head == null) {
       head = element;
@@ -84,38 +98,42 @@ public final class ConcurrentIntrusiveList<T extends Element<T>> {
       element.setNext(head);
       head = element;
     }
+    return true;
   }
 
   /**
    * Removes the given {@code element} from the list.
    *
    * @param element the element to remove.
-   * @throws IllegalArgumentException if the element is not in the list.
    */
-  public synchronized void removeElement(T element) {
-    checkArgument(
-        element.getNext() != null || element.getPrev() != null || element == head,
-        "Element not in the list.");
+  public synchronized boolean removeElement(T element) {
+    if (element.getNext() == null && element.getPrev() == null && element != head) {
+      // Element not in the list.
+      return false;
+    }
     size--;
-    if (element.getPrev() == null) {
+    T prev = element.getPrev();
+    T next = element.getNext();
+    if (prev == null) {
       // This is the first element
-      head = element.getNext();
+      head = next;
       if (head != null) {
         // If more than one element in the list.
         head.setPrev(null);
         element.setNext(null);
       }
-    } else if (element.getNext() == null) {
+    } else if (next == null) {
       // This is the last element, and there is at least another element because
       // element.getPrev() != null.
-      CheckerFrameworkUtils.castNonNull(element.getPrev()).setNext(null);
+      prev.setNext(null);
       element.setPrev(null);
     } else {
-      CheckerFrameworkUtils.castNonNull(element.getPrev()).setNext(element.getNext());
-      CheckerFrameworkUtils.castNonNull(element.getNext()).setPrev(element.getPrev());
+      prev.setNext(element.getNext());
+      next.setPrev(element.getPrev());
       element.setNext(null);
       element.setPrev(null);
     }
+    return true;
   }
 
   /**
@@ -125,6 +143,19 @@ public final class ConcurrentIntrusiveList<T extends Element<T>> {
    */
   public synchronized int size() {
     return size;
+  }
+
+  /** Clears all the elements from the list. */
+  public synchronized void clear() {
+    while (true) {
+      T currentHead = head;
+      if (currentHead == null) {
+        // No more elements in the list.
+        return;
+      }
+      // This will move the head.
+      removeElement(currentHead);
+    }
   }
 
   /**

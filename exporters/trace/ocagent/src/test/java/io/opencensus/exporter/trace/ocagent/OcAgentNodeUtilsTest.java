@@ -18,18 +18,14 @@ package io.opencensus.exporter.trace.ocagent;
 
 import static com.google.common.truth.Truth.assertThat;
 import static io.opencensus.exporter.trace.ocagent.OcAgentNodeUtils.OC_AGENT_EXPORTER_VERSION;
-import static io.opencensus.exporter.trace.ocagent.OcAgentNodeUtils.RESOURCE_LABEL_ATTRIBUTE_KEY;
-import static io.opencensus.exporter.trace.ocagent.OcAgentNodeUtils.RESOURCE_TYPE_ATTRIBUTE_KEY;
 
 import io.opencensus.common.Timestamp;
-import io.opencensus.contrib.monitoredresource.util.MonitoredResource.AwsEc2InstanceMonitoredResource;
-import io.opencensus.contrib.monitoredresource.util.MonitoredResource.GcpGceInstanceMonitoredResource;
-import io.opencensus.contrib.monitoredresource.util.MonitoredResource.GcpGkeContainerMonitoredResource;
 import io.opencensus.proto.agent.common.v1.LibraryInfo;
 import io.opencensus.proto.agent.common.v1.LibraryInfo.Language;
 import io.opencensus.proto.agent.common.v1.ProcessIdentifier;
 import io.opencensus.proto.agent.common.v1.ServiceInfo;
-import java.util.Map;
+import io.opencensus.proto.resource.v1.Resource;
+import java.util.Collections;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -38,20 +34,9 @@ import org.junit.runners.JUnit4;
 @RunWith(JUnit4.class)
 public class OcAgentNodeUtilsTest {
 
-  private static final AwsEc2InstanceMonitoredResource AWS_RESOURCE =
-      AwsEc2InstanceMonitoredResource.create("account1", "instance1", "us-east-2");
-  private static final GcpGceInstanceMonitoredResource GCE_RESOURCE =
-      GcpGceInstanceMonitoredResource.create("account2", "instance2", "us-west2");
-  private static final GcpGkeContainerMonitoredResource GKE_RESOURCE =
-      GcpGkeContainerMonitoredResource.create(
-          "account3", "cluster", "container", "", "instance3", "", "us-west4");
-
-  @Test
-  public void testConstants() {
-    assertThat(OC_AGENT_EXPORTER_VERSION).isEqualTo("0.17.0-SNAPSHOT");
-    assertThat(RESOURCE_TYPE_ATTRIBUTE_KEY).isEqualTo("OPENCENSUS_SOURCE_TYPE");
-    assertThat(RESOURCE_LABEL_ATTRIBUTE_KEY).isEqualTo("OPENCENSUS_SOURCE_LABELS");
-  }
+  private static final io.opencensus.resource.Resource CUSTOM_RESOURCE =
+      io.opencensus.resource.Resource.create(
+          "some environment", Collections.singletonMap("k1", "v1"));
 
   @Test
   public void getProcessIdentifier() {
@@ -81,42 +66,15 @@ public class OcAgentNodeUtilsTest {
   }
 
   @Test
-  public void getAttributeMap_Null() {
-    Map<String, String> attributeMap = OcAgentNodeUtils.getAttributeMap(null);
-    assertThat(attributeMap).isEmpty();
+  public void toResourceProto_Null() {
+    Resource resourceProto = OcAgentNodeUtils.toResourceProto(null);
+    assertThat(resourceProto).isNull();
   }
 
   @Test
-  public void getAttributeMap_AwsEc2Resource() {
-    Map<String, String> attributeMap = OcAgentNodeUtils.getAttributeMap(AWS_RESOURCE);
-    assertThat(attributeMap)
-        .containsExactly(
-            RESOURCE_TYPE_ATTRIBUTE_KEY,
-            "AWS_EC2_INSTANCE",
-            RESOURCE_LABEL_ATTRIBUTE_KEY,
-            "aws_account=account1,instance_id=instance1,region=us-east-2");
-  }
-
-  @Test
-  public void getAttributeMap_GceResource() {
-    Map<String, String> attributeMap = OcAgentNodeUtils.getAttributeMap(GCE_RESOURCE);
-    assertThat(attributeMap)
-        .containsExactly(
-            RESOURCE_TYPE_ATTRIBUTE_KEY,
-            "GCP_GCE_INSTANCE",
-            RESOURCE_LABEL_ATTRIBUTE_KEY,
-            "gcp_account=account2,instance_id=instance2,zone=us-west2");
-  }
-
-  @Test
-  public void getAttributeMap_GkeResource() {
-    Map<String, String> attributeMap = OcAgentNodeUtils.getAttributeMap(GKE_RESOURCE);
-    assertThat(attributeMap)
-        .containsExactly(
-            RESOURCE_TYPE_ATTRIBUTE_KEY,
-            "GCP_GKE_CONTAINER",
-            RESOURCE_LABEL_ATTRIBUTE_KEY,
-            "gcp_account=account3,instance_id=instance3,location=us-west4,"
-                + "cluster_name=cluster,container_name=container");
+  public void toResourceProto() {
+    Resource resourceProto = OcAgentNodeUtils.toResourceProto(CUSTOM_RESOURCE);
+    assertThat(resourceProto.getType()).isEqualTo("some environment");
+    assertThat(resourceProto.getLabelsMap()).containsExactly("k1", "v1");
   }
 }

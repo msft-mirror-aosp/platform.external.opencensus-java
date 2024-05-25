@@ -23,8 +23,12 @@ import io.opencensus.internal.NoopScope;
 import io.opencensus.tags.propagation.TagContextBinarySerializer;
 import io.opencensus.tags.propagation.TagContextDeserializationException;
 import io.opencensus.tags.propagation.TagContextSerializationException;
+import io.opencensus.tags.propagation.TagContextTextFormat;
+import io.opencensus.tags.propagation.TagContextTextFormat.Getter;
+import io.opencensus.tags.propagation.TagContextTextFormat.Setter;
 import java.util.Arrays;
 import java.util.Iterator;
+import javax.annotation.Nullable;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -46,13 +50,29 @@ public final class NoopTagsTest {
         }
       };
 
+  private static final Setter<Object> NOOP_SETTER =
+      new Setter<Object>() {
+        @Override
+        public void put(Object carrier, String key, String value) {}
+      };
+
+  private static final Getter<Object> NOOP_GETTER =
+      new Getter<Object>() {
+        @Nullable
+        @Override
+        public String get(Object carrier, String key) {
+          return null;
+        }
+      };
+
   @Rule public final ExpectedException thrown = ExpectedException.none();
 
   @Test
   public void noopTagsComponent() {
-    assertThat(NoopTags.newNoopTagsComponent().getTagger()).isSameAs(NoopTags.getNoopTagger());
+    assertThat(NoopTags.newNoopTagsComponent().getTagger())
+        .isSameInstanceAs(NoopTags.getNoopTagger());
     assertThat(NoopTags.newNoopTagsComponent().getTagPropagationComponent())
-        .isSameAs(NoopTags.getNoopTagPropagationComponent());
+        .isSameInstanceAs(NoopTags.getNoopTagPropagationComponent());
   }
 
   @Test
@@ -88,12 +108,13 @@ public final class NoopTagsTest {
   @Test
   public void noopTagger() {
     Tagger noopTagger = NoopTags.getNoopTagger();
-    assertThat(noopTagger.empty()).isSameAs(NoopTags.getNoopTagContext());
-    assertThat(noopTagger.getCurrentTagContext()).isSameAs(NoopTags.getNoopTagContext());
-    assertThat(noopTagger.emptyBuilder()).isSameAs(NoopTags.getNoopTagContextBuilder());
-    assertThat(noopTagger.toBuilder(TAG_CONTEXT)).isSameAs(NoopTags.getNoopTagContextBuilder());
-    assertThat(noopTagger.currentBuilder()).isSameAs(NoopTags.getNoopTagContextBuilder());
-    assertThat(noopTagger.withTagContext(TAG_CONTEXT)).isSameAs(NoopScope.getInstance());
+    assertThat(noopTagger.empty()).isSameInstanceAs(NoopTags.getNoopTagContext());
+    assertThat(noopTagger.getCurrentTagContext()).isSameInstanceAs(NoopTags.getNoopTagContext());
+    assertThat(noopTagger.emptyBuilder()).isSameInstanceAs(NoopTags.getNoopTagContextBuilder());
+    assertThat(noopTagger.toBuilder(TAG_CONTEXT))
+        .isSameInstanceAs(NoopTags.getNoopTagContextBuilder());
+    assertThat(noopTagger.currentBuilder()).isSameInstanceAs(NoopTags.getNoopTagContextBuilder());
+    assertThat(noopTagger.withTagContext(TAG_CONTEXT)).isSameInstanceAs(NoopScope.getInstance());
   }
 
   @Test
@@ -112,12 +133,14 @@ public final class NoopTagsTest {
 
   @Test
   public void noopTagContextBuilder() {
-    assertThat(NoopTags.getNoopTagContextBuilder().build()).isSameAs(NoopTags.getNoopTagContext());
+    assertThat(NoopTags.getNoopTagContextBuilder().build())
+        .isSameInstanceAs(NoopTags.getNoopTagContext());
     assertThat(NoopTags.getNoopTagContextBuilder().put(KEY, VALUE).build())
-        .isSameAs(NoopTags.getNoopTagContext());
-    assertThat(NoopTags.getNoopTagContextBuilder().buildScoped()).isSameAs(NoopScope.getInstance());
+        .isSameInstanceAs(NoopTags.getNoopTagContext());
+    assertThat(NoopTags.getNoopTagContextBuilder().buildScoped())
+        .isSameInstanceAs(NoopScope.getInstance());
     assertThat(NoopTags.getNoopTagContextBuilder().put(KEY, VALUE).buildScoped())
-        .isSameAs(NoopScope.getInstance());
+        .isSameInstanceAs(NoopScope.getInstance());
   }
 
   @Test
@@ -135,6 +158,13 @@ public final class NoopTagsTest {
   }
 
   @Test
+  public void noopTagContextBuilder_Put_DisallowsNullTagMetadata() {
+    TagContextBuilder noopBuilder = NoopTags.getNoopTagContextBuilder();
+    thrown.expect(NullPointerException.class);
+    noopBuilder.put(KEY, VALUE, null);
+  }
+
+  @Test
   public void noopTagContextBuilder_Remove_DisallowsNullKey() {
     TagContextBuilder noopBuilder = NoopTags.getNoopTagContextBuilder();
     thrown.expect(NullPointerException.class);
@@ -149,7 +179,9 @@ public final class NoopTagsTest {
   @Test
   public void noopTagPropagationComponent() {
     assertThat(NoopTags.getNoopTagPropagationComponent().getBinarySerializer())
-        .isSameAs(NoopTags.getNoopTagContextBinarySerializer());
+        .isSameInstanceAs(NoopTags.getNoopTagContextBinarySerializer());
+    assertThat(NoopTags.getNoopTagPropagationComponent().getCorrelationContextFormat())
+        .isSameInstanceAs(NoopTags.getNoopTagContextTextSerializer());
   }
 
   @Test
@@ -175,5 +207,53 @@ public final class NoopTagsTest {
     TagContextBinarySerializer noopSerializer = NoopTags.getNoopTagContextBinarySerializer();
     thrown.expect(NullPointerException.class);
     noopSerializer.fromByteArray(null);
+  }
+
+  @Test
+  public void noopTagContextTextFormat()
+      throws TagContextDeserializationException, TagContextSerializationException {
+    NoopTags.getNoopTagContextTextSerializer().inject(TAG_CONTEXT, new Object(), NOOP_SETTER);
+    assertThat(NoopTags.getNoopTagContextTextSerializer().extract(new Object(), NOOP_GETTER))
+        .isEqualTo(NoopTags.getNoopTagContext());
+  }
+
+  @Test
+  public void noopTagContextTextFormat_inject_DisallowsNullTagContext()
+      throws TagContextSerializationException {
+    TagContextTextFormat noopSerializer = NoopTags.getNoopTagContextTextSerializer();
+    thrown.expect(NullPointerException.class);
+    noopSerializer.inject(null, new Object(), NOOP_SETTER);
+  }
+
+  @Test
+  public void noopTagContextTextFormat_inject_DisallowsNullCarrier()
+      throws TagContextSerializationException {
+    TagContextTextFormat noopSerializer = NoopTags.getNoopTagContextTextSerializer();
+    thrown.expect(NullPointerException.class);
+    noopSerializer.inject(TAG_CONTEXT, null, NOOP_SETTER);
+  }
+
+  @Test
+  public void noopTagContextTextFormat_inject_DisallowsNullSetter()
+      throws TagContextSerializationException {
+    TagContextTextFormat noopSerializer = NoopTags.getNoopTagContextTextSerializer();
+    thrown.expect(NullPointerException.class);
+    noopSerializer.inject(TAG_CONTEXT, new Object(), null);
+  }
+
+  @Test
+  public void noopTagContextTextFormat_extract_DisallowsNullCarrier()
+      throws TagContextDeserializationException {
+    TagContextTextFormat noopSerializer = NoopTags.getNoopTagContextTextSerializer();
+    thrown.expect(NullPointerException.class);
+    noopSerializer.extract(null, NOOP_GETTER);
+  }
+
+  @Test
+  public void noopTagContextTextFormat_extract_DisallowsNullGetter()
+      throws TagContextDeserializationException {
+    TagContextTextFormat noopSerializer = NoopTags.getNoopTagContextTextSerializer();
+    thrown.expect(NullPointerException.class);
+    noopSerializer.extract(new Object(), null);
   }
 }
