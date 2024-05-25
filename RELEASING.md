@@ -65,7 +65,10 @@ token](https://help.github.com/articles/creating-a-personal-access-token-for-the
       examples/build.gradle
       examples/pom.xml
       api/src/main/java/io/opencensus/common/OpenCensusLibraryInformation.java
+      exporters/metrics/ocagent/src/main/java/io/opencensus/exporter/metrics/ocagent/OcAgentNodeUtils.java
       exporters/trace/ocagent/src/main/java/io/opencensus/exporter/trace/ocagent/OcAgentNodeUtils.java
+      examples/spring/servlet/build.gradle
+      examples/spring/servlet/pom.xml
       )
     $ git checkout -b v$MAJOR.$MINOR.x master
     $ git push upstream v$MAJOR.$MINOR.x
@@ -121,7 +124,8 @@ token](https://help.github.com/articles/creating-a-personal-access-token-for-the
     ```
 
     -   Go through PR review and push the release tag and updated release branch
-        to GitHub:
+        to GitHub (note: do not squash the commits when you merge otherwise you
+        will lose the release tag):
 
     ```bash
     $ git checkout v$MAJOR.$MINOR.x
@@ -145,7 +149,7 @@ gone through code review. For the current release use:
 $ git checkout -b v$MAJOR.$MINOR.$PATCH tags/v$MAJOR.$MINOR.$PATCH
 ```
 
-### Initial Deployment
+### Building and Deploying
 
 The following command will build the whole project and upload it to Maven
 Central. Parallel building [is not safe during
@@ -203,18 +207,24 @@ $ BUILD_FILES=(
 $ README_FILES=(
   README.md
   contrib/appengine_standard_util/README.md
+  contrib/dropwizard/README.md
+  contrib/dropwizard5/README.md
   contrib/exemplar_util/README.md
   contrib/grpc_util/README.md
+  contrib/http_jaxrs/README.md
+  contrib/http_jetty_client/README.md
+  contrib/http_servlet/README.md
   contrib/http_util/README.md
   contrib/log_correlation/log4j2/README.md
   contrib/log_correlation/stackdriver/README.md
-  contrib/monitored_resource_util/README.md
   contrib/spring/README.md
   contrib/spring_sleuth_v1x/README.md
   contrib/zpages/README.md
   exporters/stats/prometheus/README.md
   exporters/stats/signalfx/README.md
   exporters/stats/stackdriver/README.md
+  exporters/trace/datadog/README.md
+  exporters/trace/elasticsearch/README.md
   exporters/trace/instana/README.md
   exporters/trace/logging/README.md
   exporters/trace/jaeger/README.md
@@ -231,56 +241,23 @@ $ sed -i 's/\(\(compile\|runtime\).\+io\.opencensus:.\+:\)[0-9]\+\.[0-9]\+\.[0-9
 # Substitute versions in maven pom examples in README.md
 $ sed -i 's/\(<version>\)[0-9]\+\.[0-9]\+\.[0-9]\+/\1'$MAJOR.$MINOR.$PATCH'/' \
  "${README_FILES[@]}"
+$ git commit -a -m "Update release versions for all readme and build files." 
 ```
 
-2. Update bazel dependencies for subproject `examples`:
+2. Go through PR review and merge it to GitHub master branch.
 
-    - Follow the instructions on [this
-    page](https://docs.bazel.build/versions/master/generate-workspace.html) to
-    install bazel migration tool. You may also need to manually apply
-    this [patch](
-    https://github.com/nevillelyh/migration-tooling/commit/f10e14fd18ad3885c7ec8aa305e4eba266a07ebf)
-    if you encounter `Unable to find a version for ... due to Invalid Range Result` error when
-    using it.
-
-    - Use the following command to generate new dependencies file:
-
-    ```bash
-    $ bazel run //generate_workspace -- \
-    --artifact=com.google.guava:guava-jdk5:23.0
-    --artifact=com.google.guava:guava:23.0 \
-    --artifact=io.grpc:grpc-all:1.9.0 \
-    --artifact=io.opencensus:opencensus-api:$MAJOR.$MINOR.$PATCH \
-    --artifact=io.opencensus:opencensus-contrib-grpc-metrics:$MAJOR.$MINOR.$PATCH \
-    --artifact=io.opencensus:opencensus-contrib-zpages:$MAJOR.$MINOR.$PATCH \
-    --artifact=io.opencensus:opencensus-exporter-stats-prometheus:$MAJOR.$MINOR.$PATCH \
-    --artifact=io.opencensus:opencensus-exporter-stats-stackdriver:$MAJOR.$MINOR.$PATCH \
-    --artifact=io.opencensus:opencensus-exporter-trace-logging:$MAJOR.$MINOR.$PATCH \
-    --artifact=io.opencensus:opencensus-exporter-trace-stackdriver:$MAJOR.$MINOR.$PATCH \
-    --artifact=io.opencensus:opencensus-impl:$MAJOR.$MINOR.$PATCH \
-    --artifact=io.prometheus:simpleclient_httpserver:0.3.0 \
-    --repositories=http://repo.maven.apache.org/maven2
-    Wrote
-    /usr/local/.../generate_workspace.runfiles/__main__/generate_workspace.bzl
-    ```
-
-    - Copy this file to overwrite `examples/opencensus_workspace.bzl`.
-
-    - Use the following command to rename the generated rules and commit the
-      changes above:
-
-    ```bash
-    $ sed -i 's/def generated_/def opencensus_/' examples/opencensus_workspace.bzl
-    $ git commit -a -m "Update release versions for all readme and build files."
-    ```
-
-3. Go through PR review and merge it to GitHub master branch.
-
-4. In addition, create a PR to mark the new release in 
+3. In addition, create a PR to mark the new release in 
 [CHANGELOG.md](https://github.com/census-instrumentation/opencensus-java/blob/master/CHANGELOG.md)
 on master branch. Once that PR is merged, cherry-pick the commit and create another PR to the 
 release branch (branch v$MAJOR.$MINOR.x).
 
+## Patch Release
+All patch releases should include only bug-fixes, and must avoid adding/modifying the public APIs.
+To cherry-pick one commit use the following command:
+```bash
+$ COMMIT=1224f0a # Set the right commit hash.
+$ git cherry-pick -x $COMMIT
+```
 
 ## Known Issues
 

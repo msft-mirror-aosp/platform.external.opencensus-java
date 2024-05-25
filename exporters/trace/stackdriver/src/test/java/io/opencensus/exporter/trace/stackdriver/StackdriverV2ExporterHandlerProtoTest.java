@@ -17,9 +17,7 @@
 package io.opencensus.exporter.trace.stackdriver;
 
 import static com.google.common.truth.Truth.assertThat;
-import static io.opencensus.contrib.monitoredresource.util.ResourceType.AWS_EC2_INSTANCE;
-import static io.opencensus.contrib.monitoredresource.util.ResourceType.GCP_GCE_INSTANCE;
-import static io.opencensus.contrib.monitoredresource.util.ResourceType.GCP_GKE_CONTAINER;
+import static io.opencensus.exporter.trace.stackdriver.StackdriverTraceConfiguration.DEFAULT_DEADLINE;
 import static io.opencensus.exporter.trace.stackdriver.StackdriverV2ExporterHandler.createResourceLabelKey;
 import static io.opencensus.exporter.trace.stackdriver.StackdriverV2ExporterHandler.toStringAttributeValueProto;
 
@@ -36,10 +34,9 @@ import com.google.devtools.cloudtrace.v2.StackTrace;
 import com.google.devtools.cloudtrace.v2.TruncatableString;
 import com.google.protobuf.Int32Value;
 import io.opencensus.common.Timestamp;
-import io.opencensus.contrib.monitoredresource.util.MonitoredResource;
-import io.opencensus.contrib.monitoredresource.util.MonitoredResource.AwsEc2InstanceMonitoredResource;
-import io.opencensus.contrib.monitoredresource.util.MonitoredResource.GcpGceInstanceMonitoredResource;
-import io.opencensus.contrib.monitoredresource.util.MonitoredResource.GcpGkeContainerMonitoredResource;
+import io.opencensus.contrib.resource.util.CloudResource;
+import io.opencensus.contrib.resource.util.HostResource;
+import io.opencensus.resource.Resource;
 import io.opencensus.trace.Annotation;
 import io.opencensus.trace.Link;
 import io.opencensus.trace.Span.Kind;
@@ -48,6 +45,7 @@ import io.opencensus.trace.SpanId;
 import io.opencensus.trace.Status;
 import io.opencensus.trace.TraceId;
 import io.opencensus.trace.TraceOptions;
+import io.opencensus.trace.Tracestate;
 import io.opencensus.trace.export.SpanData;
 import io.opencensus.trace.export.SpanData.TimedEvent;
 import io.opencensus.trace.export.SpanData.TimedEvents;
@@ -104,7 +102,8 @@ public final class StackdriverV2ExporterHandlerProtoTest {
   private static final SpanId spanId = SpanId.fromLowerBase16(SPAN_ID);
   private static final TraceId traceId = TraceId.fromLowerBase16(TRACE_ID);
   private static final TraceOptions traceOptions = TraceOptions.DEFAULT;
-  private static final SpanContext spanContext = SpanContext.create(traceId, spanId, traceOptions);
+  private static final SpanContext spanContext =
+      SpanContext.create(traceId, spanId, traceOptions, Tracestate.builder().build());
 
   private static final List<TimedEvent<Annotation>> annotationsList =
       ImmutableList.of(
@@ -131,56 +130,35 @@ public final class StackdriverV2ExporterHandlerProtoTest {
       TimedEvents.create(networkEventsList, DROPPED_NETWORKEVENTS_COUNT);
   private static final SpanData.Links links = SpanData.Links.create(linksList, DROPPED_LINKS_COUNT);
   private static final Map<String, AttributeValue> EMPTY_RESOURCE_LABELS = Collections.emptyMap();
-  private static final AwsEc2InstanceMonitoredResource AWS_EC2_INSTANCE_MONITORED_RESOURCE =
-      AwsEc2InstanceMonitoredResource.create("my-project", "my-instance", "us-east-1");
-  private static final GcpGceInstanceMonitoredResource GCP_GCE_INSTANCE_MONITORED_RESOURCE =
-      GcpGceInstanceMonitoredResource.create("my-project", "my-instance", "us-east1");
-  private static final GcpGkeContainerMonitoredResource GCP_GKE_CONTAINER_MONITORED_RESOURCE =
-      GcpGkeContainerMonitoredResource.create(
-          "my-project", "cluster", "container", "namespace", "my-instance", "pod", "us-east1");
-  private static final ImmutableMap<String, AttributeValue> AWS_RESOURCE_LABELS =
+  private static final Resource CUSTOM_RESOURCE =
+      Resource.create(
+          "MyOwnResouce",
+          ImmutableMap.of(
+              CloudResource.ACCOUNT_ID_KEY,
+              "my-project",
+              CloudResource.ZONE_KEY,
+              "us-east1",
+              HostResource.ID_KEY,
+              "my-instance"));
+  private static final ImmutableMap<String, AttributeValue> EXPECTED_RESOURCE_ATTRIBUTES =
       ImmutableMap.of(
-          createResourceLabelKey(AWS_EC2_INSTANCE, "aws_account"),
+          createResourceLabelKey(CloudResource.ACCOUNT_ID_KEY),
           toStringAttributeValueProto("my-project"),
-          createResourceLabelKey(AWS_EC2_INSTANCE, "instance_id"),
-          toStringAttributeValueProto("my-instance"),
-          createResourceLabelKey(AWS_EC2_INSTANCE, "region"),
-          toStringAttributeValueProto("aws:us-east-1"));
-  private static final ImmutableMap<String, AttributeValue> GCE_RESOURCE_LABELS =
-      ImmutableMap.of(
-          createResourceLabelKey(GCP_GCE_INSTANCE, "project_id"),
-          toStringAttributeValueProto("my-project"),
-          createResourceLabelKey(GCP_GCE_INSTANCE, "instance_id"),
-          toStringAttributeValueProto("my-instance"),
-          createResourceLabelKey(GCP_GCE_INSTANCE, "zone"),
-          toStringAttributeValueProto("us-east1"));
-  private static final ImmutableMap<String, AttributeValue> GKE_RESOURCE_LABELS =
-      ImmutableMap.<String, AttributeValue>builder()
-          .put(
-              createResourceLabelKey(GCP_GKE_CONTAINER, "project_id"),
-              toStringAttributeValueProto("my-project"))
-          .put(
-              createResourceLabelKey(GCP_GKE_CONTAINER, "cluster_name"),
-              toStringAttributeValueProto("cluster"))
-          .put(
-              createResourceLabelKey(GCP_GKE_CONTAINER, "container_name"),
-              toStringAttributeValueProto("container"))
-          .put(
-              createResourceLabelKey(GCP_GKE_CONTAINER, "namespace_name"),
-              toStringAttributeValueProto("namespace"))
-          .put(
-              createResourceLabelKey(GCP_GKE_CONTAINER, "pod_name"),
-              toStringAttributeValueProto("pod"))
-          .put(
-              createResourceLabelKey(GCP_GKE_CONTAINER, "location"),
-              toStringAttributeValueProto("us-east1"))
-          .build();
+          createResourceLabelKey(CloudResource.ZONE_KEY),
+          toStringAttributeValueProto("us-east1"),
+          createResourceLabelKey(HostResource.ID_KEY),
+          toStringAttributeValueProto("my-instance"));
 
   private StackdriverV2ExporterHandler handler;
 
   @Before
   public void setUp() throws IOException {
-    handler = StackdriverV2ExporterHandler.createWithCredentials(FAKE_CREDENTIALS, PROJECT_ID);
+    handler =
+        StackdriverV2ExporterHandler.createWithCredentials(
+            PROJECT_ID,
+            FAKE_CREDENTIALS,
+            Collections.<String, io.opencensus.trace.AttributeValue>emptyMap(),
+            DEFAULT_DEADLINE);
   }
 
   @Test
@@ -283,7 +261,9 @@ public final class StackdriverV2ExporterHandlerProtoTest {
             .setNanos(endTimestamp.getNanos())
             .build();
 
-    Span span = handler.generateSpan(spanData, EMPTY_RESOURCE_LABELS);
+    Span span =
+        handler.generateSpan(
+            spanData, EMPTY_RESOURCE_LABELS, Collections.<String, AttributeValue>emptyMap());
     assertThat(span.getName()).isEqualTo(SD_SPAN_NAME);
     assertThat(span.getSpanId()).isEqualTo(SPAN_ID);
     assertThat(span.getParentSpanId()).isEqualTo(PARENT_SPAN_ID);
@@ -305,35 +285,20 @@ public final class StackdriverV2ExporterHandlerProtoTest {
     assertThat(span.getTimeEvents().getDroppedAnnotationsCount())
         .isEqualTo(DROPPED_ANNOTATIONS_COUNT);
     assertThat(span.getTimeEvents().getTimeEventList())
-        .containsAllOf(annotationTimeEvent1, annotationTimeEvent2, sentTimeEvent, recvTimeEvent);
+        .containsExactly(annotationTimeEvent1, annotationTimeEvent2, sentTimeEvent, recvTimeEvent);
     assertThat(span.getLinks()).isEqualTo(spanLinks);
     assertThat(span.getStatus()).isEqualTo(spanStatus);
     assertThat(span.getSameProcessAsParentSpan())
-        .isEqualTo(com.google.protobuf.BoolValue.newBuilder().build());
+        .isEqualTo(com.google.protobuf.BoolValue.of(false));
     assertThat(span.getChildSpanCount())
         .isEqualTo(Int32Value.newBuilder().setValue(CHILD_SPAN_COUNT).build());
   }
 
   @Test
-  public void getResourceLabels_AwsEc2ResourceLabels() {
-    testGetResourceLabels(AWS_EC2_INSTANCE_MONITORED_RESOURCE, AWS_RESOURCE_LABELS);
-  }
-
-  @Test
-  public void getResourceLabels_GceResourceLabels() {
-    testGetResourceLabels(GCP_GCE_INSTANCE_MONITORED_RESOURCE, GCE_RESOURCE_LABELS);
-  }
-
-  @Test
-  public void getResourceLabels_GkeResourceLabels() {
-    testGetResourceLabels(GCP_GKE_CONTAINER_MONITORED_RESOURCE, GKE_RESOURCE_LABELS);
-  }
-
-  private static void testGetResourceLabels(
-      MonitoredResource resource, Map<String, AttributeValue> expectedLabels) {
+  public void getResourceLabels() {
     Map<String, AttributeValue> actualLabels =
-        StackdriverV2ExporterHandler.getResourceLabels(resource);
-    assertThat(actualLabels).containsExactlyEntriesIn(expectedLabels);
+        StackdriverV2ExporterHandler.getResourceLabels(CUSTOM_RESOURCE);
+    assertThat(actualLabels).containsExactlyEntriesIn(EXPECTED_RESOURCE_ATTRIBUTES);
   }
 
   @Test
@@ -353,9 +318,12 @@ public final class StackdriverV2ExporterHandlerProtoTest {
             CHILD_SPAN_COUNT,
             status,
             endTimestamp);
-    Span span = handler.generateSpan(spanData, AWS_RESOURCE_LABELS);
+    Span span =
+        handler.generateSpan(
+            spanData, EXPECTED_RESOURCE_ATTRIBUTES, Collections.<String, AttributeValue>emptyMap());
     Map<String, AttributeValue> attributeMap = span.getAttributes().getAttributeMapMap();
-    assertThat(attributeMap.entrySet()).containsAllIn(AWS_RESOURCE_LABELS.entrySet());
+    assertThat(attributeMap.entrySet())
+        .containsAtLeastElementsIn(EXPECTED_RESOURCE_ATTRIBUTES.entrySet());
   }
 
   @Test
@@ -381,6 +349,7 @@ public final class StackdriverV2ExporterHandlerProtoTest {
             parentSpanId,
             /* hasRemoteParent= */ true,
             SPAN_NAME,
+            null,
             startTimestamp,
             httpAttributes,
             annotations,
@@ -390,7 +359,9 @@ public final class StackdriverV2ExporterHandlerProtoTest {
             status,
             endTimestamp);
 
-    Span span = handler.generateSpan(spanData, EMPTY_RESOURCE_LABELS);
+    Span span =
+        handler.generateSpan(
+            spanData, EMPTY_RESOURCE_LABELS, Collections.<String, AttributeValue>emptyMap());
     Map<String, AttributeValue> attributes = span.getAttributes().getAttributeMapMap();
 
     assertThat(attributes).containsEntry("/http/host", toStringAttributeValueProto("host"));
@@ -401,6 +372,32 @@ public final class StackdriverV2ExporterHandlerProtoTest {
         .containsEntry("/http/user_agent", toStringAttributeValueProto("user_agent"));
     assertThat(attributes)
         .containsEntry("/http/status_code", AttributeValue.newBuilder().setIntValue(200L).build());
+  }
+
+  @Test
+  public void exportChildSpanCount() {
+    SpanData spanData =
+        SpanData.create(
+            spanContext,
+            parentSpanId,
+            /* hasRemoteParent= */ true,
+            SPAN_NAME,
+            Kind.SERVER,
+            startTimestamp,
+            attributes,
+            annotations,
+            messageEvents,
+            links,
+            CHILD_SPAN_COUNT,
+            status,
+            endTimestamp);
+    assertThat(
+            handler
+                .generateSpan(
+                    spanData, EMPTY_RESOURCE_LABELS, Collections.<String, AttributeValue>emptyMap())
+                .getChildSpanCount()
+                .getValue())
+        .isEqualTo(CHILD_SPAN_COUNT);
   }
 
   @Test
@@ -420,7 +417,12 @@ public final class StackdriverV2ExporterHandlerProtoTest {
             CHILD_SPAN_COUNT,
             status,
             endTimestamp);
-    assertThat(handler.generateSpan(spanData, EMPTY_RESOURCE_LABELS).getDisplayName().getValue())
+    assertThat(
+            handler
+                .generateSpan(
+                    spanData, EMPTY_RESOURCE_LABELS, Collections.<String, AttributeValue>emptyMap())
+                .getDisplayName()
+                .getValue())
         .isEqualTo("Recv." + SPAN_NAME);
   }
 
@@ -441,7 +443,12 @@ public final class StackdriverV2ExporterHandlerProtoTest {
             CHILD_SPAN_COUNT,
             status,
             endTimestamp);
-    assertThat(handler.generateSpan(spanData, EMPTY_RESOURCE_LABELS).getDisplayName().getValue())
+    assertThat(
+            handler
+                .generateSpan(
+                    spanData, EMPTY_RESOURCE_LABELS, Collections.<String, AttributeValue>emptyMap())
+                .getDisplayName()
+                .getValue())
         .isEqualTo("Recv." + SPAN_NAME);
   }
 
@@ -462,7 +469,12 @@ public final class StackdriverV2ExporterHandlerProtoTest {
             CHILD_SPAN_COUNT,
             status,
             endTimestamp);
-    assertThat(handler.generateSpan(spanData, EMPTY_RESOURCE_LABELS).getDisplayName().getValue())
+    assertThat(
+            handler
+                .generateSpan(
+                    spanData, EMPTY_RESOURCE_LABELS, Collections.<String, AttributeValue>emptyMap())
+                .getDisplayName()
+                .getValue())
         .isEqualTo("Sent." + SPAN_NAME);
   }
 
@@ -483,7 +495,44 @@ public final class StackdriverV2ExporterHandlerProtoTest {
             CHILD_SPAN_COUNT,
             status,
             endTimestamp);
-    assertThat(handler.generateSpan(spanData, EMPTY_RESOURCE_LABELS).getDisplayName().getValue())
+    assertThat(
+            handler
+                .generateSpan(
+                    spanData, EMPTY_RESOURCE_LABELS, Collections.<String, AttributeValue>emptyMap())
+                .getDisplayName()
+                .getValue())
         .isEqualTo("Sent." + SPAN_NAME);
+  }
+
+  @Test
+  public void addFixedAttributes() {
+    final ImmutableMap<String, AttributeValue> fixedAttributes =
+        ImmutableMap.of(
+            "string_attr_key",
+            toStringAttributeValueProto("my-project"),
+            "long_attr_key",
+            AttributeValue.newBuilder().setIntValue(1234).build(),
+            "bool_attr_key",
+            AttributeValue.newBuilder().setBoolValue(true).build());
+
+    SpanData spanData =
+        SpanData.create(
+            spanContext,
+            parentSpanId,
+            /* hasRemoteParent= */ true,
+            "Sent." + SPAN_NAME,
+            Kind.CLIENT,
+            startTimestamp,
+            attributes,
+            annotations,
+            messageEvents,
+            links,
+            CHILD_SPAN_COUNT,
+            status,
+            endTimestamp);
+
+    Span span = handler.generateSpan(spanData, EMPTY_RESOURCE_LABELS, fixedAttributes);
+    Map<String, AttributeValue> attributeMap = span.getAttributes().getAttributeMapMap();
+    assertThat(attributeMap.entrySet()).containsAtLeastElementsIn(fixedAttributes.entrySet());
   }
 }

@@ -53,11 +53,26 @@ public class TraceIdTest {
   }
 
   @Test
+  public void getLowerLong() {
+    assertThat(first.getLowerLong()).isEqualTo(0);
+    assertThat(second.getLowerLong()).isEqualTo(-0xFF00000000000000L);
+  }
+
+  @Test
   public void fromLowerBase16() {
     assertThat(TraceId.fromLowerBase16("00000000000000000000000000000000"))
         .isEqualTo(TraceId.INVALID);
     assertThat(TraceId.fromLowerBase16("00000000000000000000000000000061")).isEqualTo(first);
     assertThat(TraceId.fromLowerBase16("ff000000000000000000000000000041")).isEqualTo(second);
+  }
+
+  @Test
+  public void fromLowerBase16_WithOffset() {
+    assertThat(TraceId.fromLowerBase16("XX00000000000000000000000000000000CC", 2))
+        .isEqualTo(TraceId.INVALID);
+    assertThat(TraceId.fromLowerBase16("YY00000000000000000000000000000061AA", 2)).isEqualTo(first);
+    assertThat(TraceId.fromLowerBase16("ZZff000000000000000000000000000041BB", 2))
+        .isEqualTo(second);
   }
 
   @Test
