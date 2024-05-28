@@ -31,24 +31,19 @@ import org.junit.runners.JUnit4;
 /** Unit tests for {@link ContextUtils}. */
 @RunWith(JUnit4.class)
 public final class ContextUtilsTest {
-  @Test
-  public void testContextKeyName() {
-    // Context.Key.toString() returns the name.
-    assertThat(ContextUtils.TAG_CONTEXT_KEY.toString()).isEqualTo("opencensus-tag-context-key");
-  }
 
   @Test
   public void testGetCurrentTagContext_DefaultContext() {
-    TagContext tags = ContextUtils.TAG_CONTEXT_KEY.get();
+    TagContext tags = ContextUtils.getValue(Context.current());
     assertThat(tags).isNotNull();
     assertThat(asList(tags)).isEmpty();
   }
 
   @Test
   public void testGetCurrentTagContext_ContextSetToNull() {
-    Context orig = Context.current().withValue(ContextUtils.TAG_CONTEXT_KEY, null).attach();
+    Context orig = ContextUtils.withValue(Context.current(), null).attach();
     try {
-      TagContext tags = ContextUtils.TAG_CONTEXT_KEY.get();
+      TagContext tags = ContextUtils.getValue(Context.current());
       assertThat(tags).isNotNull();
       assertThat(asList(tags)).isEmpty();
     } finally {

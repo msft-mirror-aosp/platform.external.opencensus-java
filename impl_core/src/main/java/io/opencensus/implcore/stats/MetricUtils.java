@@ -21,15 +21,19 @@ import io.opencensus.common.Function;
 import io.opencensus.common.Functions;
 import io.opencensus.metrics.LabelKey;
 import io.opencensus.metrics.LabelValue;
+import io.opencensus.metrics.data.AttachmentValue;
 import io.opencensus.metrics.export.MetricDescriptor;
 import io.opencensus.metrics.export.MetricDescriptor.Type;
 import io.opencensus.stats.Aggregation;
+import io.opencensus.stats.Aggregation.Count;
 import io.opencensus.stats.Measure;
 import io.opencensus.stats.View;
 import io.opencensus.tags.TagKey;
 import io.opencensus.tags.TagValue;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /*>>>
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -38,6 +42,8 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 @SuppressWarnings("deprecation")
 // Utils to convert Stats data models to Metric data models.
 final class MetricUtils {
+
+  @VisibleForTesting static final String COUNT_UNIT = "1";
 
   @javax.annotation.Nullable
   static MetricDescriptor viewToMetricDescriptor(View view) {
@@ -51,11 +57,12 @@ final class MetricUtils {
       labelKeys.add(LabelKey.create(tagKey.getName(), ""));
     }
     Measure measure = view.getMeasure();
+    Aggregation aggregation = view.getAggregation();
     return MetricDescriptor.create(
         view.getName().asString(),
         view.getDescription(),
-        measure.getUnit(),
-        getType(measure, view.getAggregation()),
+        getUnit(measure, aggregation),
+        getType(measure, aggregation),
         labelKeys);
   }
 
@@ -77,12 +84,27 @@ final class MetricUtils {
         AGGREGATION_TYPE_DEFAULT_FUNCTION);
   }
 
+  private static String getUnit(Measure measure, Aggregation aggregation) {
+    if (aggregation instanceof Count) {
+      return COUNT_UNIT;
+    }
+    return measure.getUnit();
+  }
+
   static List<LabelValue> tagValuesToLabelValues(List</*@Nullable*/ TagValue> tagValues) {
     List<LabelValue> labelValues = new ArrayList<LabelValue>();
     for (/*@Nullable*/ TagValue tagValue : tagValues) {
       labelValues.add(LabelValue.create(tagValue == null ? null : tagValue.asString()));
     }
     return labelValues;
+  }
+
+  static Map<String, String> toStringAttachments(Map<String, AttachmentValue> attachments) {
+    Map<String, String> stringAttachments = new HashMap<>();
+    for (Map.Entry<String, AttachmentValue> entry : attachments.entrySet()) {
+      stringAttachments.put(entry.getKey(), entry.getValue().getValue());
+    }
+    return stringAttachments;
   }
 
   private static final Function<Object, Type> TYPE_CUMULATIVE_DOUBLE_FUNCTION =

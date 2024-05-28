@@ -18,7 +18,7 @@ package io.opencensus.implcore.tags.propagation;
 
 import io.opencensus.implcore.internal.CurrentState;
 import io.opencensus.implcore.internal.CurrentState.State;
-import io.opencensus.implcore.tags.TagContextImpl;
+import io.opencensus.implcore.tags.TagMapImpl;
 import io.opencensus.tags.TagContext;
 import io.opencensus.tags.propagation.TagContextBinarySerializer;
 import io.opencensus.tags.propagation.TagContextDeserializationException;
@@ -37,13 +37,13 @@ final class TagContextBinarySerializerImpl extends TagContextBinarySerializer {
   public byte[] toByteArray(TagContext tags) throws TagContextSerializationException {
     return state.getInternal() == State.DISABLED
         ? EMPTY_BYTE_ARRAY
-        : SerializationUtils.serializeBinary(tags);
+        : BinarySerializationUtils.serializeBinary(tags);
   }
 
   @Override
   public TagContext fromByteArray(byte[] bytes) throws TagContextDeserializationException {
     return state.getInternal() == State.DISABLED
-        ? TagContextImpl.EMPTY
-        : SerializationUtils.deserializeBinary(bytes);
+        ? TagMapImpl.EMPTY
+        : BinarySerializationUtils.deserializeBinary(bytes);
   }
 }

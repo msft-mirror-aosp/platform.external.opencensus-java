@@ -38,7 +38,7 @@ import javax.annotation.concurrent.ThreadSafe;
  * }
  * }</pre>
  *
- * @since 0.17
+ * @since 0.20
  */
 @ThreadSafe
 public final class OcAgentTraceExporter {
@@ -56,14 +56,10 @@ public final class OcAgentTraceExporter {
    * Creates a {@code OcAgentTraceExporterHandler} with default configurations and registers it to
    * the OpenCensus library.
    *
-   * @since 0.17
+   * @since 0.20
    */
   public static void createAndRegister() {
-    synchronized (monitor) {
-      checkState(handler == null, "OC-Agent exporter is already registered.");
-      OcAgentTraceExporterHandler newHandler = new OcAgentTraceExporterHandler();
-      registerInternal(newHandler);
-    }
+    createAndRegister(OcAgentTraceExporterConfiguration.builder().build());
   }
 
   /**
@@ -71,7 +67,7 @@ public final class OcAgentTraceExporter {
    * the OpenCensus library.
    *
    * @param configuration the {@code OcAgentTraceExporterConfiguration}.
-   * @since 0.17
+   * @since 0.20
    */
   public static void createAndRegister(OcAgentTraceExporterConfiguration configuration) {
     synchronized (monitor) {
@@ -81,8 +77,10 @@ public final class OcAgentTraceExporter {
               configuration.getEndPoint(),
               configuration.getServiceName(),
               configuration.getUseInsecure(),
+              configuration.getSslContext(),
               configuration.getRetryInterval(),
-              configuration.getEnableConfig());
+              configuration.getEnableConfig(),
+              configuration.getDeadline());
       registerInternal(newHandler);
     }
   }
@@ -107,10 +105,13 @@ public final class OcAgentTraceExporter {
   /**
    * Unregisters the OC-Agent exporter from the OpenCensus library.
    *
-   * @since 0.17
+   * @since 0.20
    */
   public static void unregister() {
-    unregister(Tracing.getExportComponent().getSpanExporter());
+    synchronized (monitor) {
+      unregister(Tracing.getExportComponent().getSpanExporter());
+      handler = null;
+    }
   }
 
   /**

@@ -18,7 +18,8 @@ package io.opencensus.contrib.spring.sleuth.v1x;
 
 import io.grpc.Context;
 import io.opencensus.common.ExperimentalApi;
-import io.opencensus.trace.unsafe.ContextUtils;
+import io.opencensus.trace.ContextHandle;
+import io.opencensus.trace.unsafe.ContextHandleUtils;
 import org.apache.commons.logging.Log;
 import org.springframework.cloud.sleuth.Span;
 import org.springframework.core.NamedThreadLocal;
@@ -136,7 +137,7 @@ final class OpenCensusSleuthSpanContextHolder {
     final boolean autoClose;
     @javax.annotation.Nullable final SpanContext parent;
     final OpenCensusSleuthSpan ocSpan;
-    final Context ocCurrentContext;
+    final ContextHandle ocCurrentContext;
 
     private SpanContext(Span span, boolean autoClose) {
       this.span = span;
@@ -144,7 +145,7 @@ final class OpenCensusSleuthSpanContextHolder {
       this.parent = CURRENT_SPAN.get();
       this.ocSpan = new OpenCensusSleuthSpan(span);
       this.ocCurrentContext =
-          Context.current().withValue(ContextUtils.CONTEXT_SPAN_KEY, this.ocSpan);
+          ContextHandleUtils.withValue(ContextHandleUtils.currentContext(), this.ocSpan);
     }
   }
 
