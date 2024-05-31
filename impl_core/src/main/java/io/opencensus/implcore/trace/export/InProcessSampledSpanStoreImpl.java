@@ -279,6 +279,12 @@ public final class InProcessSampledSpanStoreImpl extends SampledSpanStoreImpl {
   }
 
   @Override
+  public boolean getEnabled() {
+    return true;
+  }
+
+  @Override
+  @SuppressWarnings("deprecation")
   public void registerSpanNamesForCollection(Collection<String> spanNames) {
     eventQueue.enqueue(new RegisterSpanNameEvent(this, spanNames));
   }
@@ -315,6 +321,7 @@ public final class InProcessSampledSpanStoreImpl extends SampledSpanStoreImpl {
   }
 
   @Override
+  @SuppressWarnings("deprecation")
   public void unregisterSpanNamesForCollection(Collection<String> spanNames) {
     eventQueue.enqueue(new UnregisterSpanNameEvent(this, spanNames));
   }

@@ -24,12 +24,12 @@ import io.opencensus.trace.export.SampledSpanStore;
 
 /** Implementation of the {@link ExportComponent}. */
 public final class ExportComponentImpl extends ExportComponent {
-  private static final int EXPORTER_BUFFER_SIZE = 32;
+  private static final int EXPORTER_BUFFER_SIZE = 2500;
   // Enforces that trace export exports data at least once every 5 seconds.
   private static final Duration EXPORTER_SCHEDULE_DELAY = Duration.create(5, 0);
 
   private final SpanExporterImpl spanExporter;
-  private final RunningSpanStoreImpl runningSpanStore;
+  private final InProcessRunningSpanStore inProcessRunningSpanStore;
   private final SampledSpanStoreImpl sampledSpanStore;
 
   @Override
@@ -38,8 +38,8 @@ public final class ExportComponentImpl extends ExportComponent {
   }
 
   @Override
-  public RunningSpanStoreImpl getRunningSpanStore() {
-    return runningSpanStore;
+  public InProcessRunningSpanStore getRunningSpanStore() {
+    return inProcessRunningSpanStore;
   }
 
   @Override
@@ -60,7 +60,7 @@ public final class ExportComponentImpl extends ExportComponent {
    * @return a new {@code ExportComponentImpl}.
    */
   public static ExportComponentImpl createWithInProcessStores(EventQueue eventQueue) {
-    return new ExportComponentImpl(true, eventQueue);
+    return new ExportComponentImpl(/* supportInProcessStores= */ true, eventQueue);
   }
 
   /**
@@ -70,7 +70,7 @@ public final class ExportComponentImpl extends ExportComponent {
    * @return a new {@code ExportComponentImpl}.
    */
   public static ExportComponentImpl createWithoutInProcessStores(EventQueue eventQueue) {
-    return new ExportComponentImpl(false, eventQueue);
+    return new ExportComponentImpl(/* supportInProcessStores= */ false, eventQueue);
   }
 
   /**
@@ -81,10 +81,7 @@ public final class ExportComponentImpl extends ExportComponent {
    */
   private ExportComponentImpl(boolean supportInProcessStores, EventQueue eventQueue) {
     this.spanExporter = SpanExporterImpl.create(EXPORTER_BUFFER_SIZE, EXPORTER_SCHEDULE_DELAY);
-    this.runningSpanStore =
-        supportInProcessStores
-            ? new InProcessRunningSpanStoreImpl()
-            : RunningSpanStoreImpl.getNoopRunningSpanStoreImpl();
+    this.inProcessRunningSpanStore = InProcessRunningSpanStore.create();
     this.sampledSpanStore =
         supportInProcessStores
             ? new InProcessSampledSpanStoreImpl(eventQueue)

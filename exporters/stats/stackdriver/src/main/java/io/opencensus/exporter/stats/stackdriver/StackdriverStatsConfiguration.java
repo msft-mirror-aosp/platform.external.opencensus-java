@@ -16,10 +16,22 @@
 
 package io.opencensus.exporter.stats.stackdriver;
 
+import static io.opencensus.exporter.stats.stackdriver.StackdriverExportUtils.DEFAULT_CONSTANT_LABELS;
+
 import com.google.api.MonitoredResource;
 import com.google.auth.Credentials;
 import com.google.auto.value.AutoValue;
+import com.google.cloud.ServiceOptions;
+import com.google.cloud.monitoring.v3.stub.MetricServiceStub;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import io.opencensus.common.Duration;
+import io.opencensus.metrics.LabelKey;
+import io.opencensus.metrics.LabelValue;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.Immutable;
 
@@ -31,6 +43,12 @@ import javax.annotation.concurrent.Immutable;
 @AutoValue
 @Immutable
 public abstract class StackdriverStatsConfiguration {
+
+  static final Duration DEFAULT_INTERVAL = Duration.create(60, 0);
+  static final MonitoredResource DEFAULT_RESOURCE = StackdriverExportUtils.getDefaultResource();
+  static final String DEFAULT_PROJECT_ID =
+      Strings.nullToEmpty(ServiceOptions.getDefaultProjectId());
+  static final Duration DEFAULT_DEADLINE = Duration.create(60, 0);
 
   StackdriverStatsConfiguration() {}
 
@@ -49,7 +67,6 @@ public abstract class StackdriverStatsConfiguration {
    * @return the project id.
    * @since 0.11
    */
-  @Nullable
   public abstract String getProjectId();
 
   /**
@@ -58,7 +75,6 @@ public abstract class StackdriverStatsConfiguration {
    * @return the export interval.
    * @since 0.11
    */
-  @Nullable
   public abstract Duration getExportInterval();
 
   /**
@@ -67,7 +83,6 @@ public abstract class StackdriverStatsConfiguration {
    * @return the {@code MonitoredResource}.
    * @since 0.11
    */
-  @Nullable
   public abstract MonitoredResource getMonitoredResource();
 
   /**
@@ -80,13 +95,55 @@ public abstract class StackdriverStatsConfiguration {
   public abstract String getMetricNamePrefix();
 
   /**
+   * Returns the display name prefix for Stackdriver metrics.
+   *
+   * @return the metric display name prefix.
+   * @since 0.27
+   */
+  @Nullable
+  public abstract String getDisplayNamePrefix();
+
+  /**
+   * Returns the constant labels that will be applied to every Stackdriver metric.
+   *
+   * @return the constant labels.
+   * @since 0.21
+   */
+  public abstract Map<LabelKey, LabelValue> getConstantLabels();
+
+  /**
+   * Returns the deadline for exporting to Stackdriver Monitoring backend.
+   *
+   * <p>Default value is 10 seconds if not set.
+   *
+   * @return the export deadline.
+   * @since 0.22
+   */
+  public abstract Duration getDeadline();
+
+  /**
+   * Returns the {@link MetricServiceStub} to be used to make calls to Stackdriver Monitoring v3
+   * APIs. This is for for advanced usage.
+   *
+   * @return the {@code MetricServiceStub}.
+   * @since 0.22
+   */
+  @Nullable
+  public abstract MetricServiceStub getMetricServiceStub();
+
+  /**
    * Returns a new {@link Builder}.
    *
    * @return a {@code Builder}.
    * @since 0.11
    */
   public static Builder builder() {
-    return new AutoValue_StackdriverStatsConfiguration.Builder();
+    return new AutoValue_StackdriverStatsConfiguration.Builder()
+        .setProjectId(DEFAULT_PROJECT_ID)
+        .setConstantLabels(DEFAULT_CONSTANT_LABELS)
+        .setExportInterval(DEFAULT_INTERVAL)
+        .setMonitoredResource(DEFAULT_RESOURCE)
+        .setDeadline(DEFAULT_DEADLINE);
   }
 
   /**
@@ -96,6 +153,8 @@ public abstract class StackdriverStatsConfiguration {
    */
   @AutoValue.Builder
   public abstract static class Builder {
+
+    @VisibleForTesting static final Duration ZERO = Duration.fromMillis(0);
 
     Builder() {}
 
@@ -149,11 +208,84 @@ public abstract class StackdriverStatsConfiguration {
     public abstract Builder setMetricNamePrefix(String prefix);
 
     /**
+     * Sets the the display name prefix for Stackdriver metrics.
+     *
+     * @param prefix the metric display name prefix.
+     * @return this.
+     * @since 0.27
+     */
+    public abstract Builder setDisplayNamePrefix(String prefix);
+
+    /**
+     * Sets the constant labels that will be applied to every Stackdriver metric. This default
+     * ensures that the set of labels together with the default resource (global) are unique to this
+     * process, as required by stackdriver.
+     *
+     * <p>If not set, the exporter will use the "opencensus_task" label.
+     *
+     * <p>If you set constant labels, make sure that the monitored resource together with these
+     * labels is unique to the current process. This is to ensure that there is only a single writer
+     * to each time series in Stackdriver.
+     *
+     * <p>Set constant labels to empty to avoid getting the default "opencensus_task" label. You
+     * should only do this if you know that the monitored resource uniquely identifies this process.
+     *
+     * @param constantLabels constant labels that will be applied to every Stackdriver metric.
+     * @return this
+     * @since 0.21
+     */
+    public abstract Builder setConstantLabels(Map<LabelKey, LabelValue> constantLabels);
+
+    /**
+     * Sets the deadline for exporting to Stackdriver Monitoring backend.
+     *
+     * <p>If both {@code MetricServiceStub} and {@code Deadline} are set, {@code MetricServiceStub}
+     * takes precedence and {@code Deadline} will not be respected.
+     *
+     * @param deadline the export deadline.
+     * @return this
+     * @since 0.22
+     */
+    public abstract Builder setDeadline(Duration deadline);
+
+    /**
+     * Sets the {@link MetricServiceStub} to be used to make calls to Stackdriver Monitoring v3
+     * APIs. This is for for advanced usage.
+     *
+     * @param stub the {@code MetricServiceStub}.
+     * @return this
+     * @since 0.22
+     */
+    public abstract Builder setMetricServiceStub(MetricServiceStub stub);
+
+    abstract String getProjectId();
+
+    abstract Map<LabelKey, LabelValue> getConstantLabels();
+
+    abstract Duration getDeadline();
+
+    abstract StackdriverStatsConfiguration autoBuild();
+
+    /**
      * Builds a new {@link StackdriverStatsConfiguration} with current settings.
      *
      * @return a {@code StackdriverStatsConfiguration}.
      * @since 0.11
      */
-    public abstract StackdriverStatsConfiguration build();
+    public StackdriverStatsConfiguration build() {
+      // Make a defensive copy of constant labels.
+      setConstantLabels(
+          Collections.unmodifiableMap(
+              new LinkedHashMap<LabelKey, LabelValue>(getConstantLabels())));
+      Preconditions.checkArgument(
+          !Strings.isNullOrEmpty(getProjectId()),
+          "Cannot find a project ID from either configurations or application default.");
+      for (Map.Entry<LabelKey, LabelValue> constantLabel : getConstantLabels().entrySet()) {
+        Preconditions.checkNotNull(constantLabel.getKey(), "constant label key");
+        Preconditions.checkNotNull(constantLabel.getValue(), "constant label value");
+      }
+      Preconditions.checkArgument(getDeadline().compareTo(ZERO) > 0, "Deadline must be positive.");
+      return autoBuild();
+    }
   }
 }

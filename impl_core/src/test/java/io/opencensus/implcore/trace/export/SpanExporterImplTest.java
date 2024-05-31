@@ -17,7 +17,6 @@
 package io.opencensus.implcore.trace.export;
 
 import static com.google.common.truth.Truth.assertThat;
-import static org.mockito.Matchers.anyListOf;
 import static org.mockito.Mockito.doThrow;
 
 import io.opencensus.common.Duration;
@@ -31,15 +30,20 @@ import io.opencensus.trace.SpanContext;
 import io.opencensus.trace.SpanId;
 import io.opencensus.trace.TraceId;
 import io.opencensus.trace.TraceOptions;
+import io.opencensus.trace.Tracestate;
 import io.opencensus.trace.config.TraceParams;
 import io.opencensus.trace.export.SpanData;
 import io.opencensus.trace.export.SpanExporter.Handler;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Random;
+import javax.annotation.concurrent.GuardedBy;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -53,11 +57,17 @@ public class SpanExporterImplTest {
       SpanContext.create(
           TraceId.generateRandomId(random),
           SpanId.generateRandomId(random),
-          TraceOptions.builder().setIsSampled(true).build());
+          TraceOptions.builder().setIsSampled(true).build(),
+          Tracestate.builder().build());
   private final SpanContext notSampledSpanContext =
       SpanContext.create(
-          TraceId.generateRandomId(random), SpanId.generateRandomId(random), TraceOptions.DEFAULT);
-  private final RunningSpanStoreImpl runningSpanStore = new InProcessRunningSpanStoreImpl();
+          TraceId.generateRandomId(random),
+          SpanId.generateRandomId(random),
+          TraceOptions.DEFAULT,
+          Tracestate.builder().build());
+  private final InProcessRunningSpanStore runningSpanStore = new InProcessRunningSpanStore();
+  private final SampledSpanStoreImpl sampledSpanStore =
+      SampledSpanStoreImpl.getNoopSampledSpanStoreImpl();
   private final TestHandler serviceHandler = new TestHandler();
   @Mock private Handler mockServiceHandler;
 
@@ -104,7 +114,8 @@ public class SpanExporterImplTest {
   public void exportDifferentSampledSpans() {
     SpanExporterImpl spanExporter = SpanExporterImpl.create(4, Duration.create(1, 0));
     StartEndHandler startEndHandler =
-        new StartEndHandlerImpl(spanExporter, runningSpanStore, null, new SimpleEventQueue());
+        new StartEndHandlerImpl(
+            spanExporter, runningSpanStore, sampledSpanStore, new SimpleEventQueue());
 
     spanExporter.registerHandler("test.service", serviceHandler);
 
@@ -118,7 +129,8 @@ public class SpanExporterImplTest {
   public void exportMoreSpansThanTheBufferSize() {
     SpanExporterImpl spanExporter = SpanExporterImpl.create(4, Duration.create(1, 0));
     StartEndHandler startEndHandler =
-        new StartEndHandlerImpl(spanExporter, runningSpanStore, null, new SimpleEventQueue());
+        new StartEndHandlerImpl(
+            spanExporter, runningSpanStore, sampledSpanStore, new SimpleEventQueue());
 
     spanExporter.registerHandler("test.service", serviceHandler);
 
@@ -139,6 +151,86 @@ public class SpanExporterImplTest {
             span6.toSpanData());
   }
 
+  private static class BlockingExporter extends Handler {
+    final Object monitor = new Object();
+
+    @GuardedBy("monitor")
+    Boolean condition = Boolean.FALSE;
+
+    @Override
+    public void export(Collection<SpanData> spanDataList) {
+      synchronized (monitor) {
+        while (!condition) {
+          try {
+            monitor.wait();
+          } catch (InterruptedException e) {
+            // Do nothing
+          }
+        }
+      }
+    }
+
+    private void unblock() {
+      synchronized (monitor) {
+        condition = Boolean.TRUE;
+        monitor.notifyAll();
+      }
+    }
+  }
+
+  @Test
+  public void exportMoreSpansThanTheMaximumLimit() {
+    final int bufferSize = 4;
+    final int maxReferencedSpans = bufferSize * 4;
+    SpanExporterImpl spanExporter = SpanExporterImpl.create(bufferSize, Duration.create(1, 0));
+    StartEndHandler startEndHandler =
+        new StartEndHandlerImpl(
+            spanExporter, runningSpanStore, sampledSpanStore, new SimpleEventQueue());
+    BlockingExporter blockingExporter = new BlockingExporter();
+
+    spanExporter.registerHandler("test.service", serviceHandler);
+    spanExporter.registerHandler("test.blocking", blockingExporter);
+
+    List<SpanData> spansToExport = new ArrayList<>(maxReferencedSpans);
+    for (int i = 0; i < maxReferencedSpans; i++) {
+      spansToExport.add(createSampledEndedSpan(startEndHandler, "span_1_" + i).toSpanData());
+    }
+
+    assertThat(spanExporter.getReferencedSpans()).isEqualTo(maxReferencedSpans);
+
+    // Now we should start dropping.
+    for (int i = 0; i < 7; i++) {
+      createSampledEndedSpan(startEndHandler, "span_2_" + i);
+      assertThat(spanExporter.getDroppedSpans()).isEqualTo(i + 1);
+    }
+
+    assertThat(spanExporter.getReferencedSpans()).isEqualTo(maxReferencedSpans);
+
+    // Release the blocking exporter
+    blockingExporter.unblock();
+
+    List<SpanData> exported = serviceHandler.waitForExport(maxReferencedSpans);
+    assertThat(exported).isNotNull();
+    assertThat(exported).containsExactlyElementsIn(spansToExport);
+    exported.clear();
+    spansToExport.clear();
+
+    // We cannot compare with maxReferencedSpans here because the worker thread may get
+    // unscheduled immediately after exporting, but before updating the pushed spans, if that is
+    // the case at most bufferSize spans will miss.
+    assertThat(spanExporter.getPushedSpans()).isAtLeast((long) maxReferencedSpans - bufferSize);
+
+    for (int i = 0; i < 7; i++) {
+      spansToExport.add(createSampledEndedSpan(startEndHandler, "span_3_" + i).toSpanData());
+      // No more dropped spans.
+      assertThat(spanExporter.getDroppedSpans()).isEqualTo(7);
+    }
+
+    exported = serviceHandler.waitForExport(7);
+    assertThat(exported).isNotNull();
+    assertThat(exported).containsExactlyElementsIn(spansToExport);
+  }
+
   @Test
   public void interruptWorkerThreadStops() throws InterruptedException {
     SpanExporterImpl spanExporter = SpanExporterImpl.create(4, Duration.create(1, 0));
@@ -155,11 +247,12 @@ public class SpanExporterImplTest {
   public void serviceHandlerThrowsException() {
     doThrow(new IllegalArgumentException("No export for you."))
         .when(mockServiceHandler)
-        .export(anyListOf(SpanData.class));
+        .export(ArgumentMatchers.<SpanData>anyList());
 
     SpanExporterImpl spanExporter = SpanExporterImpl.create(4, Duration.create(1, 0));
     StartEndHandler startEndHandler =
-        new StartEndHandlerImpl(spanExporter, runningSpanStore, null, new SimpleEventQueue());
+        new StartEndHandlerImpl(
+            spanExporter, runningSpanStore, sampledSpanStore, new SimpleEventQueue());
 
     spanExporter.registerHandler("test.service", serviceHandler);
 
@@ -177,7 +270,8 @@ public class SpanExporterImplTest {
   public void exportSpansToMultipleServices() {
     SpanExporterImpl spanExporter = SpanExporterImpl.create(4, Duration.create(1, 0));
     StartEndHandler startEndHandler =
-        new StartEndHandlerImpl(spanExporter, runningSpanStore, null, new SimpleEventQueue());
+        new StartEndHandlerImpl(
+            spanExporter, runningSpanStore, sampledSpanStore, new SimpleEventQueue());
 
     spanExporter.registerHandler("test.service", serviceHandler);
 
@@ -195,7 +289,8 @@ public class SpanExporterImplTest {
   public void exportNotSampledSpans() {
     SpanExporterImpl spanExporter = SpanExporterImpl.create(4, Duration.create(1, 0));
     StartEndHandler startEndHandler =
-        new StartEndHandlerImpl(spanExporter, runningSpanStore, null, new SimpleEventQueue());
+        new StartEndHandlerImpl(
+            spanExporter, runningSpanStore, sampledSpanStore, new SimpleEventQueue());
 
     spanExporter.registerHandler("test.service", serviceHandler);
 
@@ -217,7 +312,8 @@ public class SpanExporterImplTest {
     // Set the export delay to zero, for no timeout, in order to confirm the #flush() below works
     SpanExporterImpl spanExporter = SpanExporterImpl.create(4, Duration.create(0, 0));
     StartEndHandler startEndHandler =
-        new StartEndHandlerImpl(spanExporter, runningSpanStore, null, new SimpleEventQueue());
+        new StartEndHandlerImpl(
+            spanExporter, runningSpanStore, sampledSpanStore, new SimpleEventQueue());
 
     spanExporter.registerHandler("test.service", serviceHandler);
 

@@ -30,17 +30,17 @@ For Maven add to your `pom.xml`:
   <dependency>
     <groupId>io.opencensus</groupId>
     <artifactId>opencensus-api</artifactId>
-    <version>0.16.1</version>
+    <version>0.28.3</version>
   </dependency>
   <dependency>
     <groupId>io.opencensus</groupId>
     <artifactId>opencensus-exporter-stats-stackdriver</artifactId>
-    <version>0.16.1</version>
+    <version>0.28.3</version>
   </dependency>
   <dependency>
     <groupId>io.opencensus</groupId>
     <artifactId>opencensus-impl</artifactId>
-    <version>0.16.1</version>
+    <version>0.28.3</version>
     <scope>runtime</scope>
   </dependency>
 </dependencies>
@@ -48,9 +48,9 @@ For Maven add to your `pom.xml`:
 
 For Gradle add to your dependencies:
 ```groovy
-compile 'io.opencensus:opencensus-api:0.16.1'
-compile 'io.opencensus:opencensus-exporter-stats-stackdriver:0.16.1'
-runtime 'io.opencensus:opencensus-impl:0.16.1'
+compile 'io.opencensus:opencensus-api:0.28.3'
+compile 'io.opencensus:opencensus-exporter-stats-stackdriver:0.28.3'
+runtime 'io.opencensus:opencensus-impl:0.28.3'
 ```
 
 #### Register the exporter
@@ -122,7 +122,7 @@ StackdriverStatsExporter.createAndRegister(
     StackdriverStatsConfiguration.builder()
         .setCredentials(new GoogleCredentials(new AccessToken(accessToken, expirationTime)))
         .setProjectId("MyStackdriverProjectId")
-        .setExportInterval(Duration.create(10, 0))
+        .setExportInterval(Duration.create(60, 0))
         .build());
 ```
 
@@ -155,6 +155,15 @@ Stackdriver requires that each Timeseries to be updated only by one task at a ti
 Stackdriver exporter adds a new `Metric` label for each custom `Metric` to ensure the uniqueness
 of the `Timeseries`. The format of the label is: `{LANGUAGE}-{PID}@{HOSTNAME}`, if `{PID}` is not
 available a random number will be used.
+
+You have the option to override the "opencensus_task" metric label with custom constant labels using
+`StackdriverStatsConfiguration.Builder.setConstantLabels()`. If you do so, make sure that the 
+monitored resource together with these labels is unique to the current process. This is to ensure 
+that there is only a single writer to each time series in Stackdriver.
+
+You can also set `StackdriverStatsConfiguration.Builder.setConstantLabels()` to an empty map to 
+avoid getting the default "opencensus_task" label. You should only do this if you know that the 
+monitored resource uniquely identifies this process.
 
 ### Why did I get an error "java.lang.NoSuchMethodError: com.google.common...", like "java.lang.NoSuchMethodError:com.google.common.base.Throwables.throwIfInstanceOf"?
 This is probably because there is a version conflict on Guava in the dependency tree.
