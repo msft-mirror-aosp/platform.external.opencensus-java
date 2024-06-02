@@ -23,7 +23,7 @@ import io.opencensus.contrib.agent.Settings;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.runners.MockitoJUnitRunner;
+import org.mockito.junit.MockitoJUnitRunner;
 
 /** Unit tests for {@link ThreadInstrumentation}. */
 @RunWith(MockitoJUnitRunner.class)
@@ -41,7 +41,7 @@ public class ThreadInstrumentationTest {
 
     AgentBuilder agentBuilder2 = instrumentation.instrument(agentBuilder, settings);
 
-    assertThat(agentBuilder2).isSameAs(agentBuilder);
+    assertThat(agentBuilder2).isSameInstanceAs(agentBuilder);
   }
 
   @Test
@@ -50,6 +50,6 @@ public class ThreadInstrumentationTest {
 
     AgentBuilder agentBuilder2 = instrumentation.instrument(agentBuilder, settings);
 
-    assertThat(agentBuilder2).isNotSameAs(agentBuilder);
+    assertThat(agentBuilder2).isNotSameInstanceAs(agentBuilder);
   }
 }

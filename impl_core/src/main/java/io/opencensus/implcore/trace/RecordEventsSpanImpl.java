@@ -23,7 +23,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.EvictingQueue;
 import io.opencensus.common.Clock;
-import io.opencensus.implcore.internal.CheckerFrameworkUtils;
 import io.opencensus.implcore.internal.TimestampConverter;
 import io.opencensus.implcore.trace.internal.ConcurrentIntrusiveList.Element;
 import io.opencensus.trace.Annotation;
@@ -75,7 +74,7 @@ public final class RecordEventsSpanImpl extends Span implements Element<RecordEv
   private final Clock clock;
   // The time converter used to convert nano time to Timestamp. This is needed because Java has
   // millisecond granularity for Timestamp and tracing events are recorded more often.
-  @Nullable private final TimestampConverter timestampConverter;
+  private final TimestampConverter timestampConverter;
   // The start time of the span.
   private final long startNanoTime;
   // Set of recorded attributes. DO NOT CALL any other method that changes the ordering of events.
@@ -94,6 +93,9 @@ public final class RecordEventsSpanImpl extends Span implements Element<RecordEv
   @GuardedBy("this")
   @Nullable
   private TraceEvents<Link> links;
+  // The number of children.
+  @GuardedBy("this")
+  private int numberOfChildren;
   // The status of the span.
   @GuardedBy("this")
   @Nullable
@@ -259,16 +261,14 @@ public final class RecordEventsSpanImpl extends Span implements Element<RecordEv
           hasRemoteParent,
           name,
           kind,
-          CheckerFrameworkUtils.castNonNull(timestampConverter).convertNanoTime(startNanoTime),
+          timestampConverter.convertNanoTime(startNanoTime),
           attributesSpanData,
           annotationsSpanData,
           messageEventsSpanData,
           linksSpanData,
-          null, // Not supported yet.
+          numberOfChildren,
           hasBeenEnded ? getStatusWithDefault() : null,
-          hasBeenEnded
-              ? CheckerFrameworkUtils.castNonNull(timestampConverter).convertNanoTime(endNanoTime)
-              : null);
+          hasBeenEnded ? timestampConverter.convertNanoTime(endNanoTime) : null);
     }
   }
 
@@ -384,6 +384,16 @@ public final class RecordEventsSpanImpl extends Span implements Element<RecordEv
     startEndHandler.onEnd(this);
   }
 
+  void addChild() {
+    synchronized (this) {
+      if (hasBeenEnded) {
+        logger.log(Level.FINE, "Calling end() on an ended Span.");
+        return;
+      }
+      numberOfChildren++;
+    }
+  }
+
   @GuardedBy("this")
   private AttributesWithCapacity getInitializedAttributes() {
     if (attributes == null) {
@@ -426,14 +436,13 @@ public final class RecordEventsSpanImpl extends Span implements Element<RecordEv
   }
 
   private static <T> SpanData.TimedEvents<T> createTimedEvents(
-      TraceEvents<EventWithNanoTime<T>> events, @Nullable TimestampConverter timestampConverter) {
+      TraceEvents<EventWithNanoTime<T>> events, TimestampConverter timestampConverter) {
     if (events == null) {
       return SpanData.TimedEvents.create(Collections.<TimedEvent<T>>emptyList(), 0);
     }
     List<TimedEvent<T>> eventsList = new ArrayList<TimedEvent<T>>(events.events.size());
     for (EventWithNanoTime<T> networkEvent : events.events) {
-      eventsList.add(
-          networkEvent.toSpanDataTimedEvent(CheckerFrameworkUtils.castNonNull(timestampConverter)));
+      eventsList.add(networkEvent.toSpanDataTimedEvent(timestampConverter));
     }
     return SpanData.TimedEvents.create(eventsList, events.getNumberOfDroppedEvents());
   }
@@ -572,6 +581,7 @@ public final class RecordEventsSpanImpl extends Span implements Element<RecordEv
     this.clock = clock;
     this.hasBeenEnded = false;
     this.sampleToLocalSpanStore = false;
+    this.numberOfChildren = 0;
     this.timestampConverter =
         timestampConverter != null ? timestampConverter : TimestampConverter.now(clock);
     startNanoTime = clock.nowNanos();

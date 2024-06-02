@@ -78,17 +78,20 @@ public final class StackdriverTraceExporter {
       checkState(handler == null, "Stackdriver exporter is already registered.");
       Credentials credentials = configuration.getCredentials();
       String projectId = configuration.getProjectId();
-      projectId = projectId != null ? projectId : ServiceOptions.getDefaultProjectId();
 
       StackdriverV2ExporterHandler handler;
       TraceServiceStub stub = configuration.getTraceServiceStub();
       if (stub == null) {
         handler =
             StackdriverV2ExporterHandler.createWithCredentials(
+                projectId,
                 credentials != null ? credentials : GoogleCredentials.getApplicationDefault(),
-                projectId);
+                configuration.getFixedAttributes(),
+                configuration.getDeadline());
       } else {
-        handler = new StackdriverV2ExporterHandler(projectId, TraceServiceClient.create(stub));
+        handler =
+            StackdriverV2ExporterHandler.createWithStub(
+                projectId, TraceServiceClient.create(stub), configuration.getFixedAttributes());
       }
 
       registerInternal(handler);

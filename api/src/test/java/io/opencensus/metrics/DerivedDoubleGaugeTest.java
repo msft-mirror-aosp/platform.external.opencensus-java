@@ -27,7 +27,6 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
 /** Unit tests for {@link DerivedDoubleGauge}. */
-// TODO(mayurkale): Add more tests, once DerivedDoubleGauge plugs-in into the registry.
 @RunWith(JUnit4.class)
 public class DerivedDoubleGaugeTest {
   @Rule public ExpectedException thrown = ExpectedException.none();
@@ -62,14 +61,14 @@ public class DerivedDoubleGaugeTest {
   public void noopCreateTimeSeries_WithNullElement() {
     List<LabelValue> labelValues = Collections.singletonList(null);
     thrown.expect(NullPointerException.class);
-    thrown.expectMessage("labelValue element should not be null.");
+    thrown.expectMessage("labelValue");
     derivedDoubleGauge.createTimeSeries(labelValues, null, doubleFunction);
   }
 
   @Test
   public void noopCreateTimeSeries_WithInvalidLabelSize() {
     thrown.expect(IllegalArgumentException.class);
-    thrown.expectMessage("Incorrect number of labels.");
+    thrown.expectMessage("Label Keys and Label Values don't have same size.");
     derivedDoubleGauge.createTimeSeries(EMPTY_LABEL_VALUES, null, doubleFunction);
   }
 
