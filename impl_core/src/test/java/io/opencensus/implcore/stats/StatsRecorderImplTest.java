@@ -26,12 +26,14 @@ import io.opencensus.common.Duration;
 import io.opencensus.common.Timestamp;
 import io.opencensus.implcore.internal.SimpleEventQueue;
 import io.opencensus.implcore.stats.StatsTestUtil.SimpleTagContext;
+import io.opencensus.metrics.data.AttachmentValue;
+import io.opencensus.metrics.data.AttachmentValue.AttachmentValueString;
+import io.opencensus.metrics.data.Exemplar;
 import io.opencensus.stats.Aggregation.Count;
 import io.opencensus.stats.Aggregation.Distribution;
 import io.opencensus.stats.Aggregation.Sum;
 import io.opencensus.stats.AggregationData.CountData;
 import io.opencensus.stats.AggregationData.DistributionData;
-import io.opencensus.stats.AggregationData.DistributionData.Exemplar;
 import io.opencensus.stats.BucketBoundaries;
 import io.opencensus.stats.Measure.MeasureDouble;
 import io.opencensus.stats.MeasureMap;
@@ -76,6 +78,9 @@ public final class StatsRecorderImplTest {
       Distribution.create(BucketBoundaries.create(Collections.<Double>emptyList()));
   private static final Timestamp START_TIME = Timestamp.fromMillis(0);
   private static final Duration ONE_SECOND = Duration.fromMillis(1000);
+  private static final AttachmentValue ATTACHMENT_VALUE_1 = AttachmentValueString.create("v1");
+  private static final AttachmentValue ATTACHMENT_VALUE_2 = AttachmentValueString.create("v2");
+  private static final AttachmentValue ATTACHMENT_VALUE_3 = AttachmentValueString.create("v3");
 
   private final TestClock testClock = TestClock.create();
   private final StatsComponent statsComponent =
@@ -114,10 +119,8 @@ public final class StatsRecorderImplTest {
             Arrays.asList(KEY),
             Cumulative.create());
     viewManager.registerView(view);
-    Context orig =
-        Context.current()
-            .withValue(ContextUtils.TAG_CONTEXT_KEY, new SimpleTagContext(Tag.create(KEY, VALUE)))
-            .attach();
+    TagContext tags = new SimpleTagContext(Tag.create(KEY, VALUE));
+    Context orig = ContextUtils.withValue(Context.current(), tags).attach();
     try {
       statsRecorder.newMeasureMap().put(MEASURE_DOUBLE, 1.0).record();
     } finally {
@@ -170,10 +173,10 @@ public final class StatsRecorderImplTest {
         (DistributionData) viewData.getAggregationMap().get(Collections.singletonList(VALUE));
     List<Exemplar> expected =
         Arrays.asList(
-            Exemplar.create(-20.0, Timestamp.create(4, 0), Collections.singletonMap("k3", "v1")),
-            Exemplar.create(-5.0, Timestamp.create(5, 0), Collections.singletonMap("k3", "v3")),
-            Exemplar.create(1.0, Timestamp.create(2, 0), Collections.singletonMap("k2", "v2")),
-            Exemplar.create(12.0, Timestamp.create(3, 0), Collections.singletonMap("k1", "v3")));
+            Exemplar.create(
+                1.0, Timestamp.create(2, 0), Collections.singletonMap("k2", ATTACHMENT_VALUE_2)),
+            Exemplar.create(
+                12.0, Timestamp.create(3, 0), Collections.singletonMap("k1", ATTACHMENT_VALUE_3)));
     assertThat(distributionData.getExemplars()).containsExactlyElementsIn(expected).inOrder();
   }
 
@@ -209,7 +212,7 @@ public final class StatsRecorderImplTest {
     CountData countData =
         (CountData) viewData.getAggregationMap().get(Collections.singletonList(VALUE));
     // Recording exemplar does not affect views with an aggregation other than distribution.
-    assertThat(countData.getCount()).isEqualTo(6L);
+    assertThat(countData.getCount()).isEqualTo(2L);
   }
 
   private void recordWithAttachments() {
@@ -222,7 +225,7 @@ public final class StatsRecorderImplTest {
     statsRecorder
         .newMeasureMap()
         .put(MEASURE_DOUBLE, -1.0)
-        .putAttachment("k1", "v1")
+        .putAttachment("k1", ATTACHMENT_VALUE_1)
         .record(context);
 
     testClock.advanceTime(ONE_SECOND); // 2nd second.
@@ -230,7 +233,7 @@ public final class StatsRecorderImplTest {
     statsRecorder
         .newMeasureMap()
         .put(MEASURE_DOUBLE, 1.0)
-        .putAttachment("k2", "v2")
+        .putAttachment("k2", ATTACHMENT_VALUE_2)
         .record(context);
 
     testClock.advanceTime(ONE_SECOND); // 3rd second.
@@ -238,7 +241,7 @@ public final class StatsRecorderImplTest {
     statsRecorder
         .newMeasureMap()
         .put(MEASURE_DOUBLE, 12.0)
-        .putAttachment("k1", "v3")
+        .putAttachment("k1", ATTACHMENT_VALUE_3)
         .record(context);
 
     testClock.advanceTime(ONE_SECOND); // 4th second.
@@ -246,7 +249,7 @@ public final class StatsRecorderImplTest {
     statsRecorder
         .newMeasureMap()
         .put(MEASURE_DOUBLE, -20.0)
-        .putAttachment("k3", "v1")
+        .putAttachment("k3", ATTACHMENT_VALUE_1)
         .record(context);
 
     testClock.advanceTime(ONE_SECOND); // 5th second.
@@ -254,7 +257,7 @@ public final class StatsRecorderImplTest {
     statsRecorder
         .newMeasureMap()
         .put(MEASURE_DOUBLE, -5.0)
-        .putAttachment("k3", "v3")
+        .putAttachment("k3", ATTACHMENT_VALUE_3)
         .record(context);
 
     testClock.advanceTime(ONE_SECOND); // 6th second.
@@ -286,6 +289,30 @@ public final class StatsRecorderImplTest {
             Arrays.asList(VALUE),
             StatsTestUtil.createAggregationData(Sum.create(), MEASURE_DOUBLE, 1.0),
             Arrays.asList(VALUE_2),
+            StatsTestUtil.createAggregationData(Sum.create(), MEASURE_DOUBLE, 1.0)),
+        1e-6);
+  }
+
+  @Test
+  public void record_MapDeprecatedRpcConstants() {
+    View view =
+        View.create(
+            VIEW_NAME,
+            "description",
+            MEASURE_DOUBLE,
+            Sum.create(),
+            Arrays.asList(RecordUtils.RPC_METHOD));
+
+    viewManager.registerView(view);
+    MeasureMap statsRecord = statsRecorder.newMeasureMap().put(MEASURE_DOUBLE, 1.0);
+    statsRecord.record(new SimpleTagContext(Tag.create(RecordUtils.GRPC_CLIENT_METHOD, VALUE)));
+    ViewData viewData = viewManager.getView(VIEW_NAME);
+
+    // There should be two entries.
+    StatsTestUtil.assertAggregationMapEquals(
+        viewData.getAggregationMap(),
+        ImmutableMap.of(
+            Arrays.asList(VALUE),
             StatsTestUtil.createAggregationData(Sum.create(), MEASURE_DOUBLE, 1.0)),
         1e-6);
   }

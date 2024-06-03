@@ -41,4 +41,9 @@ java_library {
         "//apex_available:platform",
         "com.android.devicelock",
     ],
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }

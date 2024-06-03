@@ -84,11 +84,55 @@ public class RpcViewsTest {
   }
 
   @Test
+  public void registerClientRetryGrpcViews() {
+    FakeViewManager fakeViewManager = new FakeViewManager();
+    RpcViews.registerClientRetryGrpcViews(fakeViewManager);
+    assertThat(fakeViewManager.getRegisteredViews())
+        .containsExactlyElementsIn(RpcViews.GRPC_CLIENT_RETRY_VIEWS_SET);
+  }
+
+  @Test
   public void registerServerGrpcViews() {
     FakeViewManager fakeViewManager = new FakeViewManager();
     RpcViews.registerServerGrpcViews(fakeViewManager);
     assertThat(fakeViewManager.getRegisteredViews())
         .containsExactlyElementsIn(RpcViews.GRPC_SERVER_VIEWS_SET);
+  }
+
+  @Test
+  public void registerAllGrpcBasicViews() {
+    FakeViewManager fakeViewManager = new FakeViewManager();
+    RpcViews.registerAllGrpcBasicViews(fakeViewManager);
+    assertThat(fakeViewManager.getRegisteredViews())
+        .containsExactlyElementsIn(
+            ImmutableSet.builder()
+                .addAll(RpcViews.GRPC_CLIENT_BASIC_VIEWS_SET)
+                .addAll(RpcViews.GRPC_SERVER_BASIC_VIEWS_SET)
+                .build());
+  }
+
+  @Test
+  public void registerClientGrpcBasicViews() {
+    FakeViewManager fakeViewManager = new FakeViewManager();
+    RpcViews.registerClientGrpcBasicViews(fakeViewManager);
+    assertThat(fakeViewManager.getRegisteredViews())
+        .containsExactlyElementsIn(RpcViews.GRPC_CLIENT_BASIC_VIEWS_SET);
+  }
+
+  @Test
+  public void registerServerGrpcBasicViews() {
+    FakeViewManager fakeViewManager = new FakeViewManager();
+    RpcViews.registerServerGrpcBasicViews(fakeViewManager);
+    assertThat(fakeViewManager.getRegisteredViews())
+        .containsExactlyElementsIn(RpcViews.GRPC_SERVER_BASIC_VIEWS_SET);
+  }
+
+  @Test
+  public void registerRealTimeMetricsViews() {
+    FakeViewManager fakeViewManager = new FakeViewManager();
+    RpcViews.registerRealTimeMetricsViews(fakeViewManager);
+    assertThat(fakeViewManager.getRegisteredViews())
+        .containsExactlyElementsIn(RpcViews.GRPC_REAL_TIME_METRICS_VIEWS_SET);
   }
 
   // TODO(bdrutu): Test with reflection that all defined gRPC views are registered.

@@ -17,6 +17,7 @@
 package io.opencensus.tags;
 
 import io.opencensus.common.Scope;
+import io.opencensus.tags.TagMetadata.TagTtl;
 
 /**
  * Builder for the {@link TagContext} class.
@@ -25,15 +26,77 @@ import io.opencensus.common.Scope;
  */
 public abstract class TagContextBuilder {
 
+  private static final TagMetadata METADATA_NO_PROPAGATION =
+      TagMetadata.create(TagTtl.NO_PROPAGATION);
+  private static final TagMetadata METADATA_UNLIMITED_PROPAGATION =
+      TagMetadata.create(TagTtl.UNLIMITED_PROPAGATION);
+
   /**
    * Adds the key/value pair regardless of whether the key is present.
+   *
+   * <p>For backwards-compatibility this method still produces propagating {@link Tag}s.
+   *
+   * <p>Equivalent to calling {@code put(key, value,
+   * TagMetadata.create(TagTtl.UNLIMITED_PROPAGATION))}.
    *
    * @param key the {@code TagKey} which will be set.
    * @param value the {@code TagValue} to set for the given key.
    * @return this
    * @since 0.8
+   * @deprecated in favor of {@link #put(TagKey, TagValue, TagMetadata)}, or {@link
+   *     #putLocal(TagKey, TagValue)} if you only want in-process tags.
    */
+  @Deprecated
   public abstract TagContextBuilder put(TagKey key, TagValue value);
+
+  /**
+   * Adds the key/value pair and metadata regardless of whether the key is present.
+   *
+   * @param key the {@code TagKey} which will be set.
+   * @param value the {@code TagValue} to set for the given key.
+   * @param tagMetadata the {@code TagMetadata} associated with this {@link Tag}.
+   * @return this
+   * @since 0.20
+   */
+  public TagContextBuilder put(TagKey key, TagValue value, TagMetadata tagMetadata) {
+    @SuppressWarnings("deprecation")
+    TagContextBuilder builder = put(key, value);
+    return builder;
+  }
+
+  /**
+   * Adds a non-propagating tag to this {@code TagContextBuilder}.
+   *
+   * <p>This is equivalent to calling {@code put(key, value,
+   * TagMetadata.create(TagTtl.NO_PROPAGATION))}.
+   *
+   * @param key the {@code TagKey} which will be set.
+   * @param value the {@code TagValue} to set for the given key.
+   * @return this
+   * @since 0.21
+   */
+  public final TagContextBuilder putLocal(TagKey key, TagValue value) {
+    return put(key, value, METADATA_NO_PROPAGATION);
+  }
+
+  /**
+   * Adds an unlimited propagating tag to this {@code TagContextBuilder}.
+   *
+   * <p>This is equivalent to calling {@code put(key, value,
+   * TagMetadata.create(TagTtl.METADATA_UNLIMITED_PROPAGATION))}.
+   *
+   * <p>Only call this method if you want propagating tags. If you want tags for breaking down
+   * metrics, or there are sensitive messages in your tags, use {@link #putLocal(TagKey, TagValue)}
+   * instead.
+   *
+   * @param key the {@code TagKey} which will be set.
+   * @param value the {@code TagValue} to set for the given key.
+   * @return this
+   * @since 0.21
+   */
+  public final TagContextBuilder putPropagating(TagKey key, TagValue value) {
+    return put(key, value, METADATA_UNLIMITED_PROPAGATION);
+  }
 
   /**
    * Removes the key if it exists.
