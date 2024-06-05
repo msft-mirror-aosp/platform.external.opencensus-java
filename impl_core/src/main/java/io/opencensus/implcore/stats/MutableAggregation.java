@@ -21,6 +21,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.opencensus.common.Timestamp;
+import io.opencensus.metrics.data.AttachmentValue;
+import io.opencensus.metrics.data.Exemplar;
 import io.opencensus.metrics.export.Distribution;
 import io.opencensus.metrics.export.Distribution.BucketOptions;
 import io.opencensus.metrics.export.Point;
@@ -28,7 +30,6 @@ import io.opencensus.metrics.export.Value;
 import io.opencensus.stats.Aggregation;
 import io.opencensus.stats.AggregationData;
 import io.opencensus.stats.AggregationData.DistributionData;
-import io.opencensus.stats.AggregationData.DistributionData.Exemplar;
 import io.opencensus.stats.BucketBoundaries;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,7 +50,7 @@ abstract class MutableAggregation {
    * @param attachments the contextual information on an {@link Exemplar}
    * @param timestamp the timestamp when the value is recorded
    */
-  abstract void add(double value, Map<String, String> attachments, Timestamp timestamp);
+  abstract void add(double value, Map<String, AttachmentValue> attachments, Timestamp timestamp);
 
   // TODO(songya): remove this method once interval stats is completely removed.
   /**
@@ -85,7 +86,7 @@ abstract class MutableAggregation {
     }
 
     @Override
-    void add(double value, Map<String, String> attachments, Timestamp timestamp) {
+    void add(double value, Map<String, AttachmentValue> attachments, Timestamp timestamp) {
       sum += value;
     }
 
@@ -154,7 +155,7 @@ abstract class MutableAggregation {
     }
 
     @Override
-    void add(double value, Map<String, String> attachments, Timestamp timestamp) {
+    void add(double value, Map<String, AttachmentValue> attachments, Timestamp timestamp) {
       count++;
     }
 
@@ -202,7 +203,7 @@ abstract class MutableAggregation {
     }
 
     @Override
-    void add(double value, Map<String, String> attachments, Timestamp timestamp) {
+    void add(double value, Map<String, AttachmentValue> attachments, Timestamp timestamp) {
       count++;
       sum += value;
     }
@@ -258,10 +259,6 @@ abstract class MutableAggregation {
     private long count = 0;
     private double sumOfSquaredDeviations = 0.0;
 
-    // Initial "impossible" values, that will get reset as soon as first value is added.
-    private double min = Double.POSITIVE_INFINITY;
-    private double max = Double.NEGATIVE_INFINITY;
-
     private final BucketBoundaries bucketBoundaries;
     private final long[] bucketCounts;
 
@@ -291,7 +288,7 @@ abstract class MutableAggregation {
     }
 
     @Override
-    void add(double value, Map<String, String> attachments, Timestamp timestamp) {
+    void add(double value, Map<String, AttachmentValue> attachments, Timestamp timestamp) {
       sum += value;
       count++;
 
@@ -307,13 +304,6 @@ abstract class MutableAggregation {
       mean += deltaFromMean / count;
       double deltaFromMean2 = value - mean;
       sumOfSquaredDeviations += deltaFromMean * deltaFromMean2;
-
-      if (value < min) {
-        min = value;
-      }
-      if (value > max) {
-        max = value;
-      }
 
       int bucket = 0;
       for (; bucket < bucketBoundaries.getBoundaries().size(); bucket++) {
@@ -360,13 +350,6 @@ abstract class MutableAggregation {
       this.sum += mutableDistribution.sum;
       this.mean = this.sum / this.count;
 
-      if (mutableDistribution.min < this.min) {
-        this.min = mutableDistribution.min;
-      }
-      if (mutableDistribution.max > this.max) {
-        this.max = mutableDistribution.max;
-      }
-
       long[] bucketCounts = mutableDistribution.getBucketCounts();
       for (int i = 0; i < bucketCounts.length; i++) {
         this.bucketCounts[i] += bucketCounts[i];
@@ -401,15 +384,16 @@ abstract class MutableAggregation {
         }
       }
       return DistributionData.create(
-          mean, count, min, max, sumOfSquaredDeviations, boxedBucketCounts, exemplarList);
+          mean, count, sumOfSquaredDeviations, boxedBucketCounts, exemplarList);
     }
 
+    @SuppressWarnings("deprecation")
     @Override
     Point toPoint(Timestamp timestamp) {
       List<Distribution.Bucket> buckets = new ArrayList<Distribution.Bucket>();
       for (int bucket = 0; bucket < bucketCounts.length; bucket++) {
         long bucketCount = bucketCounts[bucket];
-        @javax.annotation.Nullable AggregationData.DistributionData.Exemplar exemplar = null;
+        @javax.annotation.Nullable Exemplar exemplar = null;
         if (exemplars != null) {
           exemplar = exemplars[bucket];
         }
@@ -417,11 +401,7 @@ abstract class MutableAggregation {
         Distribution.Bucket metricBucket;
         if (exemplar != null) {
           // Bucket with an Exemplar.
-          metricBucket =
-              Distribution.Bucket.create(
-                  bucketCount,
-                  Distribution.Exemplar.create(
-                      exemplar.getValue(), exemplar.getTimestamp(), exemplar.getAttachments()));
+          metricBucket = Distribution.Bucket.create(bucketCount, exemplar);
         } else {
           // Bucket with no Exemplar.
           metricBucket = Distribution.Bucket.create(bucketCount);
@@ -429,8 +409,6 @@ abstract class MutableAggregation {
         buckets.add(metricBucket);
       }
 
-      // TODO(mayurkale): Drop the first bucket when converting to metrics.
-      // Reason: In Stats API, bucket bounds begin with -infinity (first bucket is (-infinity, 0)).
       BucketOptions bucketOptions = BucketOptions.explicitOptions(bucketBoundaries.getBoundaries());
 
       return Point.create(
@@ -446,14 +424,6 @@ abstract class MutableAggregation {
 
     long getCount() {
       return count;
-    }
-
-    double getMin() {
-      return min;
-    }
-
-    double getMax() {
-      return max;
     }
 
     // Returns the aggregated sum of squared deviations.
@@ -495,7 +465,7 @@ abstract class MutableAggregation {
     }
 
     @Override
-    void add(double value, Map<String, String> attachments, Timestamp timestamp) {
+    void add(double value, Map<String, AttachmentValue> attachments, Timestamp timestamp) {
       lastValue = value;
       // TODO(songya): remove this once interval stats is completely removed.
       if (!initialized) {

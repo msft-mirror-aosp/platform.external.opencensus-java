@@ -18,18 +18,26 @@ package io.opencensus.implcore.tags.propagation;
 
 import io.opencensus.implcore.internal.CurrentState;
 import io.opencensus.tags.propagation.TagContextBinarySerializer;
+import io.opencensus.tags.propagation.TagContextTextFormat;
 import io.opencensus.tags.propagation.TagPropagationComponent;
 
 /** Implementation of {@link TagPropagationComponent}. */
 public final class TagPropagationComponentImpl extends TagPropagationComponent {
   private final TagContextBinarySerializer tagContextBinarySerializer;
+  private final TagContextTextFormat tagContextTextFormat;
 
   public TagPropagationComponentImpl(CurrentState state) {
     tagContextBinarySerializer = new TagContextBinarySerializerImpl(state);
+    tagContextTextFormat = new CorrelationContextFormat(state);
   }
 
   @Override
   public TagContextBinarySerializer getBinarySerializer() {
     return tagContextBinarySerializer;
+  }
+
+  @Override
+  public TagContextTextFormat getCorrelationContextFormat() {
+    return tagContextTextFormat;
   }
 }

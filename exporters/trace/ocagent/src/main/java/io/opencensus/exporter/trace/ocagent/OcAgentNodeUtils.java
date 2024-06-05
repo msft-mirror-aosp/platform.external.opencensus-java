@@ -19,23 +19,18 @@ package io.opencensus.exporter.trace.ocagent;
 import com.google.common.annotations.VisibleForTesting;
 import io.opencensus.common.OpenCensusLibraryInformation;
 import io.opencensus.common.Timestamp;
-import io.opencensus.contrib.monitoredresource.util.MonitoredResource;
-import io.opencensus.contrib.monitoredresource.util.MonitoredResource.AwsEc2InstanceMonitoredResource;
-import io.opencensus.contrib.monitoredresource.util.MonitoredResource.GcpGceInstanceMonitoredResource;
-import io.opencensus.contrib.monitoredresource.util.MonitoredResource.GcpGkeContainerMonitoredResource;
-import io.opencensus.contrib.monitoredresource.util.MonitoredResourceUtils;
+import io.opencensus.contrib.resource.util.ResourceUtils;
 import io.opencensus.proto.agent.common.v1.LibraryInfo;
 import io.opencensus.proto.agent.common.v1.LibraryInfo.Language;
 import io.opencensus.proto.agent.common.v1.Node;
 import io.opencensus.proto.agent.common.v1.ProcessIdentifier;
 import io.opencensus.proto.agent.common.v1.ServiceInfo;
+import io.opencensus.proto.resource.v1.Resource;
 import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.security.SecureRandom;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Map.Entry;
 import javax.annotation.Nullable;
 
 /** Utilities for detecting and creating {@link Node}. */
@@ -43,13 +38,11 @@ final class OcAgentNodeUtils {
 
   // The current version of the OpenCensus OC-Agent Exporter.
   @VisibleForTesting
-  static final String OC_AGENT_EXPORTER_VERSION = "0.17.0-SNAPSHOT"; // CURRENT_OPENCENSUS_VERSION
-
-  @VisibleForTesting static final String RESOURCE_TYPE_ATTRIBUTE_KEY = "OPENCENSUS_SOURCE_TYPE";
-  @VisibleForTesting static final String RESOURCE_LABEL_ATTRIBUTE_KEY = "OPENCENSUS_SOURCE_LABELS";
+  static final String OC_AGENT_EXPORTER_VERSION = "0.32.0-SNAPSHOT"; // CURRENT_OPENCENSUS_VERSION
 
   @Nullable
-  private static final MonitoredResource RESOURCE = MonitoredResourceUtils.getDefaultResource();
+  private static final io.opencensus.resource.Resource AUTO_DETECTED_RESOURCE =
+      ResourceUtils.detectResource();
 
   // Creates a Node with information from the OpenCensus library and environment variables.
   static Node getNodeInfo(String serviceName) {
@@ -59,7 +52,6 @@ final class OcAgentNodeUtils {
         .setIdentifier(getProcessIdentifier(jvmName, censusTimestamp))
         .setLibraryInfo(getLibraryInfo(OpenCensusLibraryInformation.VERSION))
         .setServiceInfo(getServiceInfo(serviceName))
-        .putAllAttributes(getAttributeMap(RESOURCE))
         .build();
   }
 
@@ -112,72 +104,25 @@ final class OcAgentNodeUtils {
     return ServiceInfo.newBuilder().setName(serviceName).build();
   }
 
-  /*
-   * Creates an attribute map with the given MonitoredResource.
-   * If the given resource is not null, the attribute map contains exactly two entries:
-   *
-   * OPENCENSUS_SOURCE_TYPE:
-   *   A string that describes the type of the resource prefixed by a domain namespace,
-   *   e.g. “kubernetes.io/container”.
-   * OPENCENSUS_SOURCE_LABELS:
-   *   A comma-separated list of labels describing the source in more detail,
-   *   e.g. “key1=val1,key2=val2”. The allowed character set is appropriately constrained.
-   */
-  // TODO: update the resource attributes once we have an agreement on the resource specs:
-  // https://github.com/census-instrumentation/opencensus-specs/pull/162.
+  @Nullable
+  static Resource getAutoDetectedResourceProto() {
+    return toResourceProto(AUTO_DETECTED_RESOURCE);
+  }
+
+  // Converts a Java Resource object to a Resource proto.
+  @Nullable
   @VisibleForTesting
-  static Map<String, String> getAttributeMap(@Nullable MonitoredResource resource) {
-    if (resource == null) {
-      return Collections.emptyMap();
+  static Resource toResourceProto(@Nullable io.opencensus.resource.Resource resource) {
+    if (resource == null || resource.getType() == null) {
+      return null;
     } else {
-      Map<String, String> resourceAttributes = new HashMap<String, String>();
-      resourceAttributes.put(RESOURCE_TYPE_ATTRIBUTE_KEY, resource.getResourceType().name());
-      resourceAttributes.put(RESOURCE_LABEL_ATTRIBUTE_KEY, getConcatenatedResourceLabels(resource));
-      return resourceAttributes;
+      Resource.Builder resourceProtoBuilder = Resource.newBuilder();
+      resourceProtoBuilder.setType(resource.getType());
+      for (Entry<String, String> keyValuePairs : resource.getLabels().entrySet()) {
+        resourceProtoBuilder.putLabels(keyValuePairs.getKey(), keyValuePairs.getValue());
+      }
+      return resourceProtoBuilder.build();
     }
-  }
-
-  // Encodes the attributes of MonitoredResource into a comma-separated list of labels.
-  // For example "aws_account=account1,instance_id=instance1,region=us-east-2".
-  private static String getConcatenatedResourceLabels(MonitoredResource resource) {
-    StringBuilder resourceLabels = new StringBuilder();
-    if (resource instanceof AwsEc2InstanceMonitoredResource) {
-      AwsEc2InstanceMonitoredResource awsEc2Resource = (AwsEc2InstanceMonitoredResource) resource;
-      putIntoBuilderIfHasValue(resourceLabels, "aws_account", awsEc2Resource.getAccount());
-      putIntoBuilderIfHasValue(resourceLabels, "instance_id", awsEc2Resource.getInstanceId());
-      putIntoBuilderIfHasValue(resourceLabels, "region", awsEc2Resource.getRegion());
-    } else if (resource instanceof GcpGceInstanceMonitoredResource) {
-      GcpGceInstanceMonitoredResource gceResource = (GcpGceInstanceMonitoredResource) resource;
-      putIntoBuilderIfHasValue(resourceLabels, "gcp_account", gceResource.getAccount());
-      putIntoBuilderIfHasValue(resourceLabels, "instance_id", gceResource.getInstanceId());
-      putIntoBuilderIfHasValue(resourceLabels, "zone", gceResource.getZone());
-    } else if (resource instanceof GcpGkeContainerMonitoredResource) {
-      GcpGkeContainerMonitoredResource gkeResource = (GcpGkeContainerMonitoredResource) resource;
-      putIntoBuilderIfHasValue(resourceLabels, "gcp_account", gkeResource.getAccount());
-      putIntoBuilderIfHasValue(resourceLabels, "instance_id", gkeResource.getInstanceId());
-      putIntoBuilderIfHasValue(resourceLabels, "location", gkeResource.getZone());
-      putIntoBuilderIfHasValue(resourceLabels, "namespace_name", gkeResource.getNamespaceId());
-      putIntoBuilderIfHasValue(resourceLabels, "cluster_name", gkeResource.getClusterName());
-      putIntoBuilderIfHasValue(resourceLabels, "container_name", gkeResource.getContainerName());
-      putIntoBuilderIfHasValue(resourceLabels, "pod_name", gkeResource.getPodId());
-    }
-    return resourceLabels.toString();
-  }
-
-  // If the given resourceValue is not empty, encodes resourceKey and resourceValue as
-  // "resourceKey:resourceValue" and puts it into the given StringBuilder. Otherwise skip the value.
-  private static void putIntoBuilderIfHasValue(
-      StringBuilder builder, String resourceKey, String resourceValue) {
-    if (resourceValue.isEmpty()) {
-      return;
-    }
-    if (!(builder.length() == 0)) {
-      // Appends the comma separator to the front, if the StringBuilder already has entries.
-      builder.append(',');
-    }
-    builder.append(resourceKey);
-    builder.append('=');
-    builder.append(resourceValue);
   }
 
   private OcAgentNodeUtils() {}
