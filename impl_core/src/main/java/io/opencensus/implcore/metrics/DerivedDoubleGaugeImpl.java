@@ -37,6 +37,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 /*>>>
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -46,54 +47,69 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 public final class DerivedDoubleGaugeImpl extends DerivedDoubleGauge implements Meter {
   private final MetricDescriptor metricDescriptor;
   private final int labelKeysSize;
+  private final List<LabelValue> constantLabelValues;
 
-  @SuppressWarnings("rawtypes")
-  private volatile Map<List<LabelValue>, PointWithFunction> registeredPoints =
-      Collections.<List<LabelValue>, PointWithFunction>emptyMap();
+  private volatile Map<List<LabelValue>, PointWithFunction<?>> registeredPoints =
+      Collections.<List<LabelValue>, PointWithFunction<?>>emptyMap();
 
-  DerivedDoubleGaugeImpl(String name, String description, String unit, List<LabelKey> labelKeys) {
-    labelKeysSize = labelKeys.size();
+  DerivedDoubleGaugeImpl(
+      String name,
+      String description,
+      String unit,
+      List<LabelKey> labelKeys,
+      Map<LabelKey, LabelValue> constantLabels) {
+    List<LabelValue> constantLabelValues = new ArrayList<LabelValue>();
+    List<LabelKey> allKeys = new ArrayList<>(labelKeys);
+    for (Entry<LabelKey, LabelValue> label : constantLabels.entrySet()) {
+      // Ensure constant label keys and values are in the same order.
+      allKeys.add(label.getKey());
+      constantLabelValues.add(label.getValue());
+    }
+    labelKeysSize = allKeys.size();
     this.metricDescriptor =
-        MetricDescriptor.create(name, description, unit, Type.GAUGE_DOUBLE, labelKeys);
+        MetricDescriptor.create(name, description, unit, Type.GAUGE_DOUBLE, allKeys);
+    this.constantLabelValues = Collections.unmodifiableList(constantLabelValues);
   }
 
   @Override
-  @SuppressWarnings("rawtypes")
   public synchronized <T> void createTimeSeries(
       List<LabelValue> labelValues,
-      /*@Nullable*/ T obj,
+      @javax.annotation.Nullable T obj,
       ToDoubleFunction</*@Nullable*/ T> function) {
-    Utils.checkListElementNotNull(
-        checkNotNull(labelValues, "labelValues"), "labelValue element should not be null.");
-    checkArgument(labelKeysSize == labelValues.size(), "Incorrect number of labels.");
+    Utils.checkListElementNotNull(checkNotNull(labelValues, "labelValues"), "labelValue");
+    List<LabelValue> labelValuesCopy = new ArrayList<LabelValue>(labelValues);
+    labelValuesCopy.addAll(constantLabelValues);
+
+    checkArgument(
+        labelKeysSize == labelValuesCopy.size(),
+        "Label Keys and Label Values don't have same size.");
     checkNotNull(function, "function");
 
-    List<LabelValue> labelValuesCopy =
-        Collections.<LabelValue>unmodifiableList(new ArrayList<LabelValue>(labelValues));
-
-    PointWithFunction existingPoint = registeredPoints.get(labelValuesCopy);
+    PointWithFunction<?> existingPoint =
+        registeredPoints.get(Collections.unmodifiableList(labelValuesCopy));
     if (existingPoint != null) {
       throw new IllegalArgumentException(
           "A different time series with the same labels already exists.");
     }
 
-    PointWithFunction newPoint = new PointWithFunction<T>(labelValuesCopy, obj, function);
+    PointWithFunction<T> newPoint = new PointWithFunction<T>(labelValuesCopy, obj, function);
     // Updating the map of time series happens under a lock to avoid multiple add operations
     // to happen in the same time.
-    Map<List<LabelValue>, PointWithFunction> registeredPointsCopy =
-        new LinkedHashMap<List<LabelValue>, PointWithFunction>(registeredPoints);
+    Map<List<LabelValue>, PointWithFunction<?>> registeredPointsCopy =
+        new LinkedHashMap<List<LabelValue>, PointWithFunction<?>>(registeredPoints);
     registeredPointsCopy.put(labelValuesCopy, newPoint);
     registeredPoints = Collections.unmodifiableMap(registeredPointsCopy);
   }
 
   @Override
-  @SuppressWarnings("rawtypes")
   public synchronized void removeTimeSeries(List<LabelValue> labelValues) {
-    checkNotNull(labelValues, "labelValues");
+    List<LabelValue> labelValuesCopy =
+        new ArrayList<LabelValue>(checkNotNull(labelValues, "labelValues"));
+    labelValuesCopy.addAll(constantLabelValues);
 
-    Map<List<LabelValue>, PointWithFunction> registeredPointsCopy =
-        new LinkedHashMap<List<LabelValue>, PointWithFunction>(registeredPoints);
-    if (registeredPointsCopy.remove(labelValues) == null) {
+    Map<List<LabelValue>, PointWithFunction<?>> registeredPointsCopy =
+        new LinkedHashMap<List<LabelValue>, PointWithFunction<?>>(registeredPoints);
+    if (registeredPointsCopy.remove(labelValuesCopy) == null) {
       // The element not present, no need to update the current map of time series.
       return;
     }
@@ -101,27 +117,30 @@ public final class DerivedDoubleGaugeImpl extends DerivedDoubleGauge implements 
   }
 
   @Override
-  @SuppressWarnings("rawtypes")
   public synchronized void clear() {
-    registeredPoints = Collections.<List<LabelValue>, PointWithFunction>emptyMap();
+    registeredPoints = Collections.<List<LabelValue>, PointWithFunction<?>>emptyMap();
   }
 
-  /*@Nullable*/
   @Override
-  @SuppressWarnings("rawtypes")
+  public MetricDescriptor getMetricDescriptor() {
+    return metricDescriptor;
+  }
+
+  @javax.annotation.Nullable
+  @Override
   public Metric getMetric(Clock clock) {
-    Map<List<LabelValue>, PointWithFunction> currentRegisteredPoints = registeredPoints;
+    Map<List<LabelValue>, PointWithFunction<?>> currentRegisteredPoints = registeredPoints;
     if (currentRegisteredPoints.isEmpty()) {
       return null;
     }
 
     if (currentRegisteredPoints.size() == 1) {
-      PointWithFunction point = currentRegisteredPoints.values().iterator().next();
+      PointWithFunction<?> point = currentRegisteredPoints.values().iterator().next();
       return Metric.createWithOneTimeSeries(metricDescriptor, point.getTimeSeries(clock));
     }
 
     List<TimeSeries> timeSeriesList = new ArrayList<TimeSeries>(currentRegisteredPoints.size());
-    for (Map.Entry<List<LabelValue>, PointWithFunction> entry :
+    for (Map.Entry<List<LabelValue>, PointWithFunction<?>> entry :
         currentRegisteredPoints.entrySet()) {
       timeSeriesList.add(entry.getValue().getTimeSeries(clock));
     }
@@ -130,15 +149,15 @@ public final class DerivedDoubleGaugeImpl extends DerivedDoubleGauge implements 
 
   /** Implementation of {@link PointWithFunction} with an object and a callback function. */
   public static final class PointWithFunction<T> {
-    private final List<LabelValue> labelValues;
+    private final TimeSeries defaultTimeSeries;
     @javax.annotation.Nullable private final WeakReference<T> ref;
     private final ToDoubleFunction</*@Nullable*/ T> function;
 
     PointWithFunction(
         List<LabelValue> labelValues,
-        /*@Nullable*/ T obj,
+        @javax.annotation.Nullable T obj,
         ToDoubleFunction</*@Nullable*/ T> function) {
-      this.labelValues = labelValues;
+      defaultTimeSeries = TimeSeries.create(labelValues);
       ref = obj != null ? new WeakReference<T>(obj) : null;
       this.function = function;
     }
@@ -146,10 +165,7 @@ public final class DerivedDoubleGaugeImpl extends DerivedDoubleGauge implements 
     private TimeSeries getTimeSeries(Clock clock) {
       final T obj = ref != null ? ref.get() : null;
       double value = function.applyAsDouble(obj);
-
-      // TODO(mayurkale): OPTIMIZATION: Avoid re-evaluate the labelValues all the time (issue#1490).
-      return TimeSeries.createWithOnePoint(
-          labelValues, Point.create(Value.doubleValue(value), clock.now()), null);
+      return defaultTimeSeries.setPoint(Point.create(Value.doubleValue(value), clock.now()));
     }
   }
 }

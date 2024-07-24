@@ -16,16 +16,23 @@
 
 package io.opencensus.implcore.stats;
 
+import io.grpc.Context;
+import io.opencensus.metrics.data.AttachmentValue;
 import io.opencensus.stats.Measure.MeasureDouble;
 import io.opencensus.stats.Measure.MeasureLong;
 import io.opencensus.stats.MeasureMap;
 import io.opencensus.tags.TagContext;
 import io.opencensus.tags.unsafe.ContextUtils;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /** Implementation of {@link MeasureMap}. */
 final class MeasureMapImpl extends MeasureMap {
+  private static final Logger logger = Logger.getLogger(MeasureMapImpl.class.getName());
+
   private final StatsManager statsManager;
   private final MeasureMapInternal.Builder builder = MeasureMapInternal.builder();
+  private volatile boolean hasUnsupportedValues;
 
   static MeasureMapImpl create(StatsManager statsManager) {
     return new MeasureMapImpl(statsManager);
@@ -37,18 +44,24 @@ final class MeasureMapImpl extends MeasureMap {
 
   @Override
   public MeasureMapImpl put(MeasureDouble measure, double value) {
+    if (value < 0) {
+      hasUnsupportedValues = true;
+    }
     builder.put(measure, value);
     return this;
   }
 
   @Override
   public MeasureMapImpl put(MeasureLong measure, long value) {
+    if (value < 0) {
+      hasUnsupportedValues = true;
+    }
     builder.put(measure, value);
     return this;
   }
 
   @Override
-  public MeasureMap putAttachment(String key, String value) {
+  public MeasureMap putAttachment(String key, AttachmentValue value) {
     builder.putAttachment(key, value);
     return this;
   }
@@ -56,11 +69,16 @@ final class MeasureMapImpl extends MeasureMap {
   @Override
   public void record() {
     // Use the context key directly, to avoid depending on the tags implementation.
-    record(ContextUtils.TAG_CONTEXT_KEY.get());
+    record(ContextUtils.getValue(Context.current()));
   }
 
   @Override
   public void record(TagContext tags) {
+    if (hasUnsupportedValues) {
+      // drop all the recorded values
+      logger.log(Level.WARNING, "Dropping values, value to record must be non-negative.");
+      return;
+    }
     statsManager.record(tags, builder.build());
   }
 }
