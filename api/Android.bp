@@ -35,7 +35,7 @@ java_library {
     libs: [
         "error_prone_annotations",
         "auto_value_annotations",
-        "grpc-java-context",
+        "grpc-java-api",
         "jsr305",
     ],
     // b/267831518: Pin tradefed and dependencies to Java 11.
